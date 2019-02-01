@@ -35,6 +35,9 @@ class Category(object):
     def sub_categories(self):
         return self._sub_categories
 
+    def __str__(self):
+        return 'Category: id={}, name={}'.format(self.category_id, self.name)
+
     def add_sub_categories(self, sub_categories):
         """
         :param sub_categories: list of ObjectClass instances
@@ -74,7 +77,9 @@ class ImageDetectionDataAPI(ABC):
     # contains configurations for the specific dataset API
     _configurations = None      # type: dict
     # contains category hierarchy of the dataset
-    _category_hierarchy = None     # type: dict
+    _category_hierarchy = None  # type: dict
+    # contain category names of all levels
+    _categories = None          # type:dict
 
     def __init__(self, data_dir, config_file_path):
         """
@@ -82,6 +87,7 @@ class ImageDetectionDataAPI(ABC):
         :param config_file_path: YAML file containing the specific API configurations
         """
         self._data_dir = data_dir
+        self._categories = {}
         self._category_hierarchy = {}
 
         with open(config_file_path) as config_file:
@@ -105,5 +111,11 @@ class ImageDetectionDataAPI(ABC):
     def _parse_categories(self):
         pass
 
+    def get_sub_categories(self, category_id):
+        if category_id not in self._categories:
+            raise ValueError('did not find category id "{}" in dataset'.format(category_id))
+        return self._categories[category_id].get_sub_categories_recursive()
+
     def get_sub_category_names(self, category_id):
-        raise NotImplementedError()
+        sub_categories = self.get_sub_categories(category_id)
+        return {k: v.name for k, v in sub_categories.items()}

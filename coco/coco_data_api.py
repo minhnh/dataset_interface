@@ -30,9 +30,14 @@ class COCODataAPI(ImageDetectionDataAPI):
         for category in categories:
             super_category = category['supercategory']
             if super_category not in self._category_hierarchy:
-                # COCO has no ID for super categories
-                self._category_hierarchy[super_category] = Category(super_category, super_category)
-            self._category_hierarchy[super_category].add_sub_category(Category(category['id'], category['name']))
+                # COCO has no ID for super categories, so use name as ID's
+                self._categories[super_category] = Category(super_category, super_category)
+                self._category_hierarchy[super_category] = self._categories[super_category]
 
-    def get_sub_category_names(self, category_id):
-        pass
+            if category['id'] in self._categories:
+                # avoiding redundant categories
+                continue
+
+            category_obj = Category(category['id'], category['name'])
+            self._categories[category_obj.category_id] = category_obj
+            self._category_hierarchy[super_category].add_sub_category(category_obj)
