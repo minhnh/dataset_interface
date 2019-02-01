@@ -1,5 +1,5 @@
 import os
-from ..common.image_data_api import ImageDetectionDataAPI, ObjectClass
+from ..common.image_data_api import ImageDetectionDataAPI, Category
 
 try:
     from pycocotools.coco import COCO
@@ -25,11 +25,14 @@ class COCODataAPI(ImageDetectionDataAPI):
         annotation_file = os.path.join(self._data_dir, 'annotations', 'instances_{}.json'.format(self._split_name))
         self._coco = COCO(annotation_file)
 
-    def _parse_classes(self):
+    def _parse_categories(self):
         categories = self._coco.loadCats(self._coco.getCatIds())
         for category in categories:
             super_category = category['supercategory']
-            if super_category not in self._class_hierarchy:
+            if super_category not in self._category_hierarchy:
                 # COCO has no ID for super categories
-                self._class_hierarchy[super_category] = ObjectClass(super_category, super_category)
-            self._class_hierarchy[super_category].add_subclass(ObjectClass(category['id'], category['name']))
+                self._category_hierarchy[super_category] = Category(super_category, super_category)
+            self._category_hierarchy[super_category].add_sub_category(Category(category['id'], category['name']))
+
+    def get_sub_category_names(self, category_id):
+        pass
