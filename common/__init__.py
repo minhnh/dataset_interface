@@ -1,1 +1,1 @@
-from .image_detection_data_api import ImageDetectionDataAPI
+from .image_data_api import ImageDetectionDataAPI
