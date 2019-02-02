@@ -33,6 +33,7 @@ class COCODataAPI(ImageDetectionDataAPI):
             super_category = category['supercategory']
             if super_category not in self._category_hierarchy:
                 # COCO has no ID for super categories, so use name as ID's
+                self._category_names[super_category] = super_category
                 self._categories[super_category] = Category(super_category, super_category)
                 self._category_hierarchy[super_category] = self._categories[super_category]
 
@@ -40,9 +41,15 @@ class COCODataAPI(ImageDetectionDataAPI):
                 # avoiding redundant categories
                 continue
 
-            category_obj = Category(category['id'], category['name'])
+            category_obj = Category(category['id'], category['name'], parent_category=super_category)
+            self._category_names[category_obj.name] = category_obj.category_id
             self._categories[category_obj.category_id] = category_obj
             self._category_hierarchy[super_category].add_sub_category(category_obj)
+
+    def _parse_image_info(self):
+        for image_id, image_dict in self._coco.imgs.items():
+            self._image_info_dict[image_id] = ImageInfo(image_id, self._image_dir, image_dict['file_name'],
+                                                        image_dict['coco_url'])
 
     def get_images_in_category(self, category_id):
         images = {}
@@ -57,18 +64,74 @@ class COCODataAPI(ImageDetectionDataAPI):
             return images
 
         for category in category_ids:
-            coco_images = self._coco.loadImgs(self._coco.catToImgs[category])
-            for coco_image in coco_images:
-                image_id = coco_image['id']
+            for image_id in self._coco.catToImgs[category]:
+                # skip overlapping annotations
                 if image_id in images:
                     continue
+                # image should have been loaded during initialization
+                if image_id not in self._image_info_dict:
+                    raise RuntimeError("image of id '{}' not found".format(image_id))
 
-                if image_id in self._image_info_collection:
-                    images[image_id] = self._image_info_collection[image_id]
-                    continue
-
-                image_info = ImageInfo(image_id, self._image_dir, coco_image['file_name'], coco_image['coco_url'])
-                self._image_info_collection[image_id] = image_info
-                images[image_id] = image_info
+                images[image_id] = self._image_info_dict[image_id]
 
         return images
+
+    def get_bounding_boxes_by_ids(self, image_id, category_ids):
+        if image_id not in self._image_info_dict:
+            raise RuntimeError("image of id '{}' not found".format(image_id))
+
+        annotations = self._coco.imgToAnns[image_id]
+
+        # create dictionary { category_id: [ list of annotation indices ] }
+        cat_to_ann_indices = {}
+        for i, ann in enumerate(annotations):
+            cat_id = ann['category_id']
+            if cat_id in cat_to_ann_indices:
+                cat_to_ann_indices[cat_id].append(i)
+            else:
+                cat_to_ann_indices[cat_id] = [i]
+
+        # fill bounding boxes
+        boxes = {}
+        for cat_id in category_ids:
+            if cat_id not in self._categories:
+                raise ValueError("category ID '{}' is not in collection".format(cat_id))
+
+            category = self._categories[cat_id]
+            if category.parent_category in category_ids:
+                raise RuntimeError("category '{}' (id '{}') is a child of super category '{}'"
+                                   .format(category.name, category.category_id, category.parent_category))
+
+            if cat_id not in boxes:
+                boxes[cat_id] = []
+
+            # get all unique annotation indices of a category and its sub-categories
+            ann_indices = set(self._get_all_ann_indices(cat_to_ann_indices, cat_id))
+
+            for ann_index in ann_indices:
+                box = annotations[ann_index]['bbox']
+                boxes[cat_id].append({'min_x': round(box[0]), 'min_y': round(box[1]),
+                                      'width': round(box[2]), 'height': round(box[3])})
+
+        return boxes
+
+    def _get_all_ann_indices(self, cat_to_ann_indices, category_id):
+        """
+        recursively get annotation indices for all sub categories (if exist) of a category
+
+        :param cat_to_ann_indices: { category_id: [ list of annotation indices ] }
+        :param category_id:
+        :return: list of annotation indices
+        """
+        if category_id in cat_to_ann_indices:
+            return cat_to_ann_indices[category_id]
+
+        if category_id not in self.category_hierarchy:
+            return []
+
+        sub_categories = self.category_hierarchy[category_id].get_sub_categories_recursive()
+        indices = []
+        for sub_cat_id in sub_categories:
+            indices.extend(self._get_all_ann_indices(cat_to_ann_indices, sub_cat_id))
+
+        return indices

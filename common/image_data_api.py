@@ -31,13 +31,13 @@ class ImageInfo(object):
 class Category(object):
     _category_id = None         # type: str
     _name = None                # type: str
+    _parent_category = None     # type: str
     # dictionary mapping sub category id to the corresponding Category object
     _sub_categories = None      # type: dict
 
-    def __init__(self, category_id, name):
+    def __init__(self, category_id, name, parent_category=None):
         """
         :param category_id: unique ID of class
-        :type category_id: str
         :param name: human readable class name
         :type name: str
         :param sub_categories: dictionary of sub categories
@@ -45,6 +45,7 @@ class Category(object):
         """
         self._category_id = category_id
         self._name = name
+        self._parent_category = parent_category
         self._sub_categories = {}
 
     @property
@@ -54,6 +55,10 @@ class Category(object):
     @property
     def name(self):
         return self._name
+
+    @property
+    def parent_category(self):
+        return self._parent_category
 
     @property
     def sub_categories(self):
@@ -111,12 +116,14 @@ class ImageDetectionDataAPI(ABC):
     _image_dir = None            # type: str
     # contains configurations for the specific dataset API
     _configurations = None      # type: dict
-    # contains category hierarchy of the dataset
+    # contains category hierarchy of the dataset, map category ID to top level 'Category' objects
     _category_hierarchy = None  # type: dict
-    # contain category names of all levels
-    _categories = None          # type:dict
-    # dictionary of ImageInfo objects
-    _image_info_collection = None
+    # contain categories of all levels, map category ID to 'Category' object
+    _categories = None          # type: dict
+    # contain category names of all levels, map category name to category ID
+    _category_names = None      # type: dict
+    # dictionary contains images' metadata, maps images' unique ID's to ImageInfo objects
+    _image_info_dict = None     # type: dict
 
     def __init__(self, data_dir, config_file_path=None):
         """
@@ -128,10 +135,13 @@ class ImageDetectionDataAPI(ABC):
 
         self._data_dir = data_dir
         self._categories = {}
+        self._category_names = {}
         self._category_hierarchy = {}
-        self._image_info_collection = {}
+        self._image_info_dict = {}
 
         if config_file_path:
+            if not os.path.exists(config_file_path):
+                raise IOError('config file does not exist: {}'.format(config_file_path))
             with open(config_file_path) as config_file:
                 self._configurations = yaml.load(config_file)
         else:
@@ -142,26 +152,95 @@ class ImageDetectionDataAPI(ABC):
 
         self._initialize()
         self._parse_categories()
+        self._parse_image_info()
 
     @property
     def category_hierarchy(self):
         return self._category_hierarchy
 
+    @property
+    def category_names(self):
+        """
+        :return: dictionary mapping category names to ID's
+        """
+        return self._category_names
+
     @abstractmethod
     def _initialize(self):
-        raise NotImplementedError('abstract method "_initialize" not implemented')
+        """
+        Contains specific initializations for the extension class, i.e. pointing to correct subdirectories
+
+        :rtype: None
+        """
+        raise NotImplementedError("abstract method '_initialize' not implemented")
 
     @abstractmethod
     def _parse_categories(self):
-        raise NotImplementedError('abstract method "_parse_categories" not implemented')
+        """
+        Handles indexing the category hierarchy, '_category_hierarchy' should be filled here
+
+        :rtype: None
+        """
+        raise NotImplementedError("abstract method '_parse_categories' not implemented")
+
+    @abstractmethod
+    def _parse_image_info(self):
+        """
+        Handles indexing image metadata, '_image_info_dict' should be filled here
+
+        :rtype: None
+        """
+        raise NotImplementedError("abstract method '_parse_image_info' not implemented")
 
     @abstractmethod
     def get_images_in_category(self, category_id):
-        raise NotImplementedError('abstract method "get_images_in_category" not implemented')
+        """
+        Gets all images which contain a certain category. Category can be of any level.
+
+        :param category_id:
+        :return:
+        """
+        raise NotImplementedError("abstract method 'get_images_in_category' not implemented")
+
+    @abstractmethod
+    def get_bounding_boxes_by_ids(self, image_id, category_ids):
+        """
+        Get all bounding boxes for the specified category ID's in a given image, should work for all levels.
+        Querying for parent category should return boxes of all child categories.
+
+        :type image_id: str
+        :type category_ids: list
+        :return: dictionary of boxes,
+                 maps { category_id: [ { min_x: int, min_y: int, width: int, height: int } ]}
+        :rtype: dict
+        """
+        raise NotImplementedError("abstract method 'get_bounding_boxes' not implemented")
+
+    def get_bounding_boxes_by_names(self, image_id, category_names):
+        """
+        Get all bounding boxes for the specified category names in a given image.
+        Call 'get_bounding_boxes_by_ids' after parsing category names
+
+        :type category_names: list
+        """
+        cat_ids = []
+        for cat_name in category_names:
+            if cat_name not in self._category_names:
+                raise ValueError("'{}' is not a recognized category name".format(cat_name))
+            cat_ids.append(self._category_names[cat_name])
+
+        return self.get_bounding_boxes_by_ids(image_id, cat_ids)
+
+    def get_category_id(self, category_name):
+        """
+        look up category ID by name
+        """
+        if category_name in self._category_names:
+            return self._category_names[category_name]
+        return None
 
     def get_sub_categories(self, category_id):
         """
-        :type category_id: str
         :rtype: dict
         """
         if category_id not in self._categories:
