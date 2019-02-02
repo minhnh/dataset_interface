@@ -1,1 +1,1 @@
-from .image_data_api import ImageDetectionDataAPI
+from .image_data_api import ImageDetectionDataAPI, Category, ImageInfo

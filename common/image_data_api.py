@@ -1,13 +1,40 @@
-from abc import ABC, abstractmethod
+import os
 import yaml
+from abc import ABC, abstractmethod
+
+
+class ImageInfo(object):
+    _id = None
+    _url = None
+    _image_path = None
+    _file_name = None
+
+    def __init__(self, image_id, directory, filename, url=None):
+        self._id = image_id
+        self._file_name = filename
+        self._image_path = os.path.join(directory, self._file_name)
+        self._url = url
+
+    @property
+    def id(self):
+        return self._id
+
+    @property
+    def url(self):
+        return self._url
+
+    @property
+    def image_path(self):
+        return self._image_path
 
 
 class Category(object):
-    _category_id = None     # type: str
-    _name = None            # type: str
-    _sub_categories = None  # type: dict
+    _category_id = None         # type: str
+    _name = None                # type: str
+    # dictionary mapping sub category id to the corresponding Category object
+    _sub_categories = None      # type: dict
 
-    def __init__(self, category_id, name, sub_categories=None):
+    def __init__(self, category_id, name):
         """
         :param category_id: unique ID of class
         :type category_id: str
@@ -18,10 +45,7 @@ class Category(object):
         """
         self._category_id = category_id
         self._name = name
-        if sub_categories is not None:
-            self._sub_categories = sub_categories
-        else:
-            self._sub_categories = {}
+        self._sub_categories = {}
 
     @property
     def category_id(self):
@@ -40,19 +64,28 @@ class Category(object):
 
     def add_sub_categories(self, sub_categories):
         """
-        :param sub_categories: list of ObjectClass instances
+        :param sub_categories: list of Category instances
         :type sub_categories: list
-        :return:
+        :rtype: None
         """
         for sub_category in sub_categories:
             self.add_sub_category(sub_category)
 
     def add_sub_category(self, sub_category):
+        """
+        :type sub_category: Category
+        :rtype: None
+        """
         if sub_category.category_id in self._sub_categories:
             return
         self._sub_categories[sub_category.category_id] = sub_category
 
     def get_sub_categories_recursive(self):
+        """
+        Recursively add sub categories into a dictionary of 'Category' objects
+        :return: dictionary of all sub categories
+        :rtype: dict
+        """
         sub_categories = {}
         for key, value in self._sub_categories.items():
             # break if key exist
@@ -72,26 +105,37 @@ class Category(object):
 
 
 class ImageDetectionDataAPI(ABC):
-    # directory containing images, annotations, category descriptions,...
+    # directory containing dataset info, i.e annotations, category descriptions,...
     _data_dir = None            # type: str
+    # directory containing images
+    _image_dir = None            # type: str
     # contains configurations for the specific dataset API
     _configurations = None      # type: dict
     # contains category hierarchy of the dataset
     _category_hierarchy = None  # type: dict
     # contain category names of all levels
     _categories = None          # type:dict
+    # dictionary of ImageInfo objects
+    _image_info_collection = None
 
-    def __init__(self, data_dir, config_file_path):
+    def __init__(self, data_dir, config_file_path=None):
         """
         :param data_dir: directory of the dataset
         :param config_file_path: YAML file containing the specific API configurations
         """
+        if not os.path.exists(data_dir):
+            raise IOError('data directory does not exist: ' + data_dir)
+
         self._data_dir = data_dir
         self._categories = {}
         self._category_hierarchy = {}
+        self._image_info_collection = {}
 
-        with open(config_file_path) as config_file:
-            self._configurations = yaml.load(config_file)
+        if config_file_path:
+            with open(config_file_path) as config_file:
+                self._configurations = yaml.load(config_file)
+        else:
+            self._configurations = {}
 
         if not self._configurations:
             raise ValueError('loading of configuration file "{}" failed'.format(config_file_path))
@@ -105,13 +149,21 @@ class ImageDetectionDataAPI(ABC):
 
     @abstractmethod
     def _initialize(self):
-        pass
+        raise NotImplementedError('abstract method "_initialize" not implemented')
 
     @abstractmethod
     def _parse_categories(self):
-        pass
+        raise NotImplementedError('abstract method "_parse_categories" not implemented')
+
+    @abstractmethod
+    def get_images_in_category(self, category_id):
+        raise NotImplementedError('abstract method "get_images_in_category" not implemented')
 
     def get_sub_categories(self, category_id):
+        """
+        :type category_id: str
+        :rtype: dict
+        """
         if category_id not in self._categories:
             raise ValueError('did not find category id "{}" in dataset'.format(category_id))
         return self._categories[category_id].get_sub_categories_recursive()
