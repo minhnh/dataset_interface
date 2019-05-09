@@ -1,30 +1,32 @@
 # `dataset_interface`
 
-A common interface for interacting with dataset, in context of the
-[b-it-bots teams](https://github.com/b-it-bots/).
+This repository includes:
 
-Note: tested only on Python 3.7.
+* A common interface for interacting with different datasets, in context of the
+[b-it-bots RoboCup teams](https://github.com/b-it-bots/).
+* Tools/pipelines for automatically segmenting object masks using the green box (TODO(minhnh) add a picture of
+the green box), using these masks to synthesize data for training object detection models, and training on the
+synthesized data
+
+Note: tested only with Python 3.
 
 ## Installation
-```
+
+Since the data API from `pycocotools` requires building Cython modules, `pip install -e .` and
+`python setup.py develop` does not seem to work. Arch user may have to install the
+[`tk` windowing toolkit](https://www.archlinux.org/packages/extra/x86_64/tk/) manually as a system dependency.
+
+```sh
 python setup.py install --user
 ```
 
-## Common interfaces
+## Common interface for datasets
 
-### [`image_data_api.py`](./common/image_data_api.py)
+A more detailed description of how this interface works can be found in the
+[dataset interface documentation](docs/dataset_interface.md)
 
-#### `ImageInfo`
-Meant to hold image metadata.
-
-#### `Category`
-Meant to handle hierarchies of images categories.
-
-#### `ImageDetectionDataAPI`
-Meant to handle common queries to dataset.
-
-#### Sample usage
 A sample config file for the COCO dataset: [`sample_coco_configs.yml`](./config/sample_coco_configs.yml)
+
 ```python
 from dataset_interface.coco import COCODataAPI
 
@@ -47,6 +49,13 @@ indoor_cat_names = coco_api.get_sub_category_names('indoor')
 
 ```
 
-## Handled datasets
+## Data augmentation
 
-* [COCO](http://cocodataset.org/): see specific [README](./coco/README.md) for more info
+TODO(minhnh)
+
+## Training
+
+We primarily train detection models using the tools and model definitions from the
+[`tensorflow/models` repository](http://github.com/tensorflow/models). Documentation of how the tools in
+`tensorflow/models` are utilized for our specific use case can be found in
+[`tensorflow_models.md`](docs/tensorflow_models.md)
