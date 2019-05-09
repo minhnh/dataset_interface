@@ -1,0 +1,120 @@
+item {
+  id: 1
+  name: 'cereal'
+}
+
+item {
+  id: 2
+  name: 'cleaning_cloth'
+}
+
+item {
+  id: 3
+  name: 'condensed_cream'
+}
+
+item {
+  id: 4
+  name: 'cookies'
+}
+
+item {
+  id: 5
+  name: 'dried_tomatoes'
+}
+
+item {
+  id: 6
+  name: 'drinks'
+}
+
+item {
+  id: 7
+  name: 'mr_muscle_box'
+}
+
+item {
+  id: 8
+  name: 'noodle_box'
+}
+
+item {
+  id: 9
+  name: 'nuts_mix'
+}
+
+item {
+  id: 10
+  name: 'pasta'
+}
+
+item {
+  id: 11
+  name: 'pepper'
+}
+
+item {
+  id: 12
+  name: 'pringles'
+}
+
+item {
+  id: 13
+  name: 'salt'
+}
+
+item {
+  id: 14
+  name: 'shampoo'
+}
+
+item {
+  id: 15
+  name: 'soapbar'
+}
+
+item {
+  id: 16
+  name: 'sponge'
+}
+
+item {
+  id: 17
+  name: 'stapler'
+}
+
+item {
+  id: 18
+  name: 'kitchen_utensil'
+}
+
+item {
+  id: 19
+  name: 'drinkware'
+}
+
+item {
+  id: 20
+  name: 'food_container'
+}
+
+item {
+  id: 21
+  name: 'tape'
+}
+
+item {
+  id: 22
+  name: 'tomato_paste'
+}
+
+item {
+  id: 23
+  name: 'toothpaste'
+}
+
+item {
+  id: 24
+  name: 'toy'
+}
+
