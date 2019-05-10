@@ -10,11 +10,10 @@ Example usage:
       --val_annotations_file="${VAL_ANNOTATIONS_FILE}" \
       --output_dir="${OUTPUT_DIR}"
 """
-
-
-import hashlib
-import tensorflow as tf
 import os
+from dataset_interface.tf_utils import create_bbox_detection_tf_example
+
+import tensorflow as tf
 import pandas as pd
 import yaml
 import sys
@@ -72,70 +71,11 @@ def create_tf_record_from_yaml(annotations_file, image_dir, classes_filename, ou
 
             filename = example['image_name']
             file_path = os.path.join(image_dir,filename)
-
             try:
-                img = cv2.imread(file_path)
-                height = img.shape[0]
-                width = img.shape[1]
-            except:
-                print('Failed with image ', file_path)
+                tf_example = create_bbox_detection_tf_example(file_path, example, classes_dict)
+            except RuntimeError as e:
+                print(e)
                 continue
-
-            with tf.gfile.GFile(file_path, 'rb') as fid:
-                encoded_image_data = fid.read()
-
-            if filename.split('.')[1] == 'jpg':
-                image_format = 'jpeg'
-            else:
-                print('Image {} is not jpg'.format(filename ))
-
-            key = hashlib.sha256(encoded_image_data).hexdigest()
-
-            xmins = [] # List of normalized left x coordinates in bounding box (1 per box)
-            xmaxs = [] # List of normalized right x coordinates in bounding box
-                       # (1 per box)
-            ymins = [] # List of normalized top y coordinates in bounding box (1 per box)
-            ymaxs = [] # List of normalized bottom y coordinates in bounding box
-                       # (1 per box)
-            classes_text = [] # List of string class name of bounding box (1 per box)
-            classes = [] # List of integer class id of bounding box (1 per box)
-
-            objects = example['objects']
-
-            for object_ in objects:
-                class_id = object_['class_id']
-                classes.append(class_id)
-                classes_text.append(classes_dict[class_id].encode('utf8'))
-
-                xmins.append(float(object_['xmin'])/width)
-                xmaxs.append(float(object_['xmax'])/width)
-                ymins.append(float(object_['ymin'])/height)
-                ymaxs.append(float(object_['ymax'])/height)
-
-                if float(object_['xmin'])/width > 1.0 or float(object_['xmax'])/width > 1.0 or \
-                    float(object_['ymin'])/height > 1.0 or float(object_['ymax'])/height > 1.0:
-                    print('=============================================')
-                    print('Invalid bounding box')
-                    print('Object: ', class_id)
-                    print('Image name: ', filename)
-                    print('Bounding box coordinates: \n xmin = {} xmax = {}  ymin = {} ymax = {}'
-                        .format(float(object_['xmin'])/width,float(object_['xmax'])/width,float(object_['ymin'])/height,float(object_['ymax'])/height))
-
-            tf_example = tf.train.Example(features=tf.train.Features(feature={
-                'image/height': dataset_util.int64_feature(height),
-                'image/width': dataset_util.int64_feature(width),
-                'image/filename': dataset_util.bytes_feature(filename.encode('utf8')),
-                'image/source_id': dataset_util.bytes_feature(filename.encode('utf8')),
-                'image/key/sha256': dataset_util.bytes_feature(key.encode('utf8')),
-                'image/encoded': dataset_util.bytes_feature(encoded_image_data),
-                'image/format': dataset_util.bytes_feature(image_format.encode('utf8')),
-                'image/object/bbox/xmin': dataset_util.float_list_feature(xmins),
-                'image/object/bbox/xmax': dataset_util.float_list_feature(xmaxs),
-                'image/object/bbox/ymin': dataset_util.float_list_feature(ymins),
-                'image/object/bbox/ymax': dataset_util.float_list_feature(ymaxs),
-                'image/object/class/text': dataset_util.bytes_list_feature(classes_text),
-                'image/object/class/label': dataset_util.int64_list_feature(classes),
-            }))
 
             output_tfrecords[output_shard_index].write(tf_example.SerializeToString())
 

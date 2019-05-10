@@ -24,7 +24,7 @@ Single-Shot Multibox Detector (SSD) implementations. For example,
 This YAML file needs to be converted to the `pbtxt` format expected by `tensorflow/models` scripts as label map file.
 The format of `pbtxt` file is as follow:
 
-```json
+```pbtxt
 item {
   id: 1
   name: 'cup'

@@ -1,0 +1,114 @@
+import io
+import os
+import hashlib
+import PIL.Image as pil
+import numpy as np
+import tensorflow as tf
+from dataset_interface.utils import is_box_valid
+
+
+def int64_feature(value):
+    """taken directly from tensorflow/models repo, file research/object_detection/utils/dataset_util.py"""
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+
+def int64_list_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
+
+
+def bytes_feature(value):
+    """taken directly from tensorflow/models repo, file research/object_detection/utils/dataset_util.py"""
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+
+def bytes_list_feature(value):
+    """taken directly from tensorflow/models repo, file research/object_detection/utils/dataset_util.py"""
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=value))
+
+
+def float_list_feature(value):
+    """taken directly from tensorflow/models repo, file research/object_detection/utils/dataset_util.py"""
+    return tf.train.Feature(float_list=tf.train.FloatList(value=value))
+
+
+def create_bbox_detection_tf_example(image_path, image_annotations, class_dict):
+    if not os.path.exists(image_path):
+        raise RuntimeError('image does not exist: ' + image_path)
+
+    # file name handling
+    image_basename = os.path.basename(image_path)
+    image_extension = os.path.splitext(image_basename)[1]
+
+    with tf.gfile.GFile(image_path, 'rb') as fid:
+        encoded_image_data = fid.read()
+
+    # extract image dimensions
+    encoded_image_io = io.BytesIO(encoded_image_data)
+    pil_image = pil.open(encoded_image_io)
+    pil_image = np.asarray(pil_image)
+    height, width, num_channel = pil_image.shape
+    if num_channel != 3:
+        raise RuntimeError("image '{}' has shape '{}' - unexpected number of channels: {}"
+                           .format(image_path, pil_image.shape, num_channel))
+    width = int(width)
+    height = int(height)
+
+    # hash image
+    image_hash = hashlib.sha256(encoded_image_data).hexdigest()
+
+    # create expected bounding box annotations
+    xmins = []          # List of normalized left x coordinates for each box
+    xmaxs = []          # List of normalized right x ...
+    ymins = []          # List of normalized top y ...
+    ymaxs = []          # List of normalized bottom y ...
+    class_names = []    # List of string class names for each box
+    classes = []        # List of integer class id's for each box
+    invalid_box_messages = []
+
+    objects = image_annotations['objects']
+
+    for obj_box in objects:
+        class_id = obj_box['class_id']
+
+        # normalize box vertices
+        x_min_norm = float(obj_box['xmin']) / width
+        x_max_norm = float(obj_box['xmax']) / width
+        y_min_norm = float(obj_box['ymin']) / height
+        y_max_norm = float(obj_box['ymax']) / height
+
+        # check for invalid box
+        if not is_box_valid(x_min_norm, y_min_norm, x_max_norm, y_max_norm, 1.0, 1.0):
+            invalid_box_messages.append("  Object ID: {}; ".format(class_id) +
+                                        "normalized box (xmin, xmax, ymin, ymax): ({:.3f}, {:.3f}, {:.3f}, {:.3f})"
+                                        .format(x_min_norm, x_max_norm, y_min_norm, y_max_norm))
+            continue
+
+        # add to annotation lists
+        classes.append(class_id)
+        class_names.append(class_dict[class_id].encode('utf8'))
+        xmins.append(x_min_norm)
+        xmaxs.append(x_max_norm)
+        ymins.append(y_min_norm)
+        ymaxs.append(y_max_norm)
+    
+    if invalid_box_messages:
+        err_msg = "=====\nInvalid box(es) for image '{}':\n".format(image_path) + '\n'.join(invalid_box_messages)
+        raise RuntimeError(err_msg)
+
+    # create tf example
+    tf_example = tf.train.Example(features=tf.train.Features(feature={
+        'image/height': int64_feature(height),
+        'image/width': int64_feature(width),
+        'image/filename': bytes_feature(image_path.encode('utf8')),
+        'image/source_id': bytes_feature(image_path.encode('utf8')),
+        'image/key/sha256': bytes_feature(image_hash.encode('utf8')),
+        'image/encoded': bytes_feature(encoded_image_data),
+        'image/format': bytes_feature(image_extension.encode('utf8')),
+        'image/object/bbox/xmin': float_list_feature(xmins),
+        'image/object/bbox/xmax': float_list_feature(xmaxs),
+        'image/object/bbox/ymin': float_list_feature(ymins),
+        'image/object/bbox/ymax': float_list_feature(ymaxs),
+        'image/object/class/text': bytes_list_feature(class_names),
+        'image/object/class/label': int64_list_feature(classes),
+    }))
+    return tf_example
