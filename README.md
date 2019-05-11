@@ -13,7 +13,7 @@ Note: tested only with Python 3.
 ## Installation
 
 Since the data API from `pycocotools` requires building Cython modules, `pip install -e .` and
-`python setup.py develop` does not seem to work. Arch user may have to install the
+`python setup.py develop` does not seem to work. Arch users may have to install the
 [`tk` windowing toolkit](https://www.archlinux.org/packages/extra/x86_64/tk/) manually as a system dependency.
 
 ```sh

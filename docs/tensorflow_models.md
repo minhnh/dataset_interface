@@ -4,6 +4,14 @@ This document describes how the tools and model definitions in the
 [`tensorflow/models` repository](http://github.com/tensorflow/models) are used for training detection models for the
 b-it-bots@Home team.
 
+## Table of contents
+
+* [Table of contents](#table-of-contents)
+* [Generate protobuf label map file](#generate-protobuf-label-map-file)
+* [Generate `TFRecord`'s from images and annotations](#generate-tfrecords-from-images-and-annotations)
+* [Training process](#training-process)
+* [Generate frozen graph from checkpoint](#generate-frozen-graph-from-checkpoint)
+
 ## Generate protobuf label map file
 
 For b-it-bots@Home, a YAML file is used for annotating class names in the following format:
@@ -64,92 +72,95 @@ optional arguments:
 binary files and can be broken into smaller chunks (i.e. shards) for easier management (see
 [this tutorial](https://www.tensorflow.org/tutorials/load_data/tf_records) for more details).
 
-The script [`create_robocup_tf_record.py`](../scripts/create_robocup_tf_record.py) handle the TFRecord generation:
+The script [`create_robocup_tf_record.py`](../scripts/create_robocup_tf_record.py) handles the TFRecord generation.
 
-* Command
+```sh
+$ python3 scripts/create_robocup_tf_record.py -h
+usage: create_robocup_tf_record.py [-h] [--image_dir IMAGE_DIR]
+                                   [--num_shards NUM_SHARDS]
+                                   annotation_file class_file output_file
 
-    ```sh
-    python3 create_robocup_tf_record.py \
-        --output_dir ${OUTPUT_DIR}\
-        --train_annotations_file  ${TRAIN_ANNOTATIONS_FILE} \
-        --train_image_dir ${TRAIN_IMAGE_DIR} \
-        --val_annotations_file ${VAL_ANNOTATIONS_FILE} \
-        --val_image_dir ${VAL_IMAGE_DIR} \
-        --classes_filename ${CLASSES_FILENAME}
-    ```
+Tool to generate TFRecord (optionally sharded) from images and bounding box
+annotations.
 
-    Example
+positional arguments:
+  annotation_file       YAML file containing image location and bounding box
+                        annotations
+  class_file            YAML file containing the mapping from class ID to
+                        class name
+  output_file           path where TFRecord's should be written to, e.g.
+                        './robocup_train.record'
 
-    ```sh
-    python3 create_robocup_tf_record.py \
-        --output_dir tf_records \
-        --train_annotations_file robocup_images/train_annotations.yml\
-        --train_image_dir robocup_images/ \
-        --val_annotations_file robocup_images/val_annotations.yml \
-        --val_image_dir robocup_images/ \
-        --classes_filename classes.yml
-    ```
+optional arguments:
+  -h, --help            show this help message and exit
+  --image_dir IMAGE_DIR, -d IMAGE_DIR
+                        if specified, will prepend to image paths in
+                        annotation file
+  --num_shards NUM_SHARDS, -n NUM_SHARDS
+                        number of fragments to split the TFRecord into
+```
 
 ## Training process
 
-* Command
+We use the `object_detection/model_main.py` script from `tensorflow/models` repo for training. The following sample
+execution follows the `research/object_detection/g3doc/running_locally.md` markdown in the repo.
 
-    ```sh
-    python3 object_detection/model_main.py \
-        --pipeline_config_path=${PIPELINE_CONFIG_PATH} \
-        --model_dir=${MODEL_DIR} \
-        --num_train_steps=${NUM_TRAIN_STEPS} \
-        --sample_1_of_n_eval_examples=${SAMPLE_1_OF_N_EVAL_EXAMPLES} \
-        --alsologtostderr
-    ```
-
-    Example
-
-    ```sh
-    python3 object_detection/model_main.py \
-        --pipeline_config_path data/ssd_resnet/pipeline.config \
-        --model_dir data/trained_model \
-        --num_train_steps 50000 \
-        --sample_1_of_n_eval_examples 1 \
-        --alsologtostderr
-    ```
+```sh
+# From the tensorflow/models/research/ directory
+PIPELINE_CONFIG_PATH=data/ssd_resnet/pipeline.config
+MODEL_DIR=/path/to/store/trained_model
+NUM_TRAIN_STEPS=50000
+SAMPLE_1_OF_N_EVAL_EXAMPLES=1
+python3 object_detection/model_main.py \
+    --pipeline_config_path=${PIPELINE_CONFIG_PATH} \
+    --model_dir=${MODEL_DIR} \
+    --num_train_steps=${NUM_TRAIN_STEPS} \
+    --sample_1_of_n_eval_examples=$SAMPLE_1_OF_N_EVAL_EXAMPLES \
+    --alsologtostderr
+```
 
 Notes:
-    - protobuf label map and tf_records required
-    - Script has to run from models/research
-    - Execute `export PYTHONPATH=$PYTHONPATH:`pwd`:`pwd`/slim`
-    - PIPELINE_CONFIG_PATH: path to the pipeline.config file with the information about the detection model and training process
-        - Verify that the paths inside the pipeline.config match where the tf_records are
-    - MODEL_DIR: path to the directory where the models checkpoints will be stored
-    - NUM_TRAIN_STEPS: number of training steps for the training process
-    - SAMPLE_1_OF_N_EVAL_EXAMPLES: TODO
+
+* In the above execution, `model_main.py` takes the following important arguments:
+  * `--pipeline_config_path`: path to the `pipeline.config` file which configures the training. Sample config files
+    can be found in the `tensorflow/models` repo under the `research/object_detection/samples/configs/` folder.
+    Entries that may need to be modified in this config file include:
+    * `pbtxt` label map, i.e. the one generated using the
+      [class annotation conversion script](../scripts/yaml_to_pbtxt_converter.py)
+    * Location of the TFRecord shards generated by the
+      [TFRecord generation script](../scripts/create_robocup_tf_record.py)
+  * `--model_dir`: path to the directory where the models checkpoints will be stored
+  * `--num_train_steps`: number of training steps for the training process
+  * `--sample_1_of_n_eval_examples`: TODO(minhnh)
+* In order to use the `model_main.py` training script, follow installation instructions described in
+  `research/object_detection/g3doc/installation.md` of the `tensorflow/models` repo. Most importantly, under the
+  `research` folder of the repo:
+  * compile Protobuf file: `protoc object_detection/protos/*.proto --python_out=.`
+  * add libraries to `PYTHONPATH`: `export PYTHONPATH=$PYTHONPATH:`pwd`:`pwd`/slim`
 
 ## Generate frozen graph from checkpoint
 
-* Command
+We use the `research/object_detection/export_inference_graph.py` script in the `tensorflow/models` repo to export
+the frozen graph for inference. Similar to the `model_main.py` script, this also needs installation and exporting
+of libraries as described above. A sample execution of this script as taken from the
+`research/object_detection/g3doc/exporting_models.md` markdown in `tensorflow/models`:
 
-    ```sh
-    python3 object_detection/export_inference_graph.py \
-        --input_type=${INPUT_TYPE} \
-        --pipeline_config_path=${PIPELINE_CONFIG_PATH} \
-        --trained_checkpoint_prefix=${TRAINED_CHECKPOINT_PREFIX} \
-        --output_directory=${OUTPUT_DIRECTORY}
-    ```
+```sh
+# From tensorflow/models/research/
+INPUT_TYPE=image_tensor
+PIPELINE_CONFIG_PATH={path to pipeline config file}
+TRAINED_CKPT_PREFIX={path to model.ckpt}
+EXPORT_DIR={path to folder that will be used for export}
+python3 object_detection/export_inference_graph.py \
+    --input_type=${INPUT_TYPE} \
+    --pipeline_config_path=${PIPELINE_CONFIG_PATH} \
+    --trained_checkpoint_prefix=${TRAINED_CKPT_PREFIX} \
+    --output_directory=${EXPORT_DIR}
+```
 
-    Example
+In the above execution, `export_inference_graph.py` takes the following important arguments:
 
-    ```sh
-    python3 object_detection/export_inference_graph.py \
-        --input_type image_tensor \
-        --pipeline_config_path ./pipeline.config \
-        --trained_checkpoint_prefix ./model.ckpt-4953 \
-        --output_directory ./frozen_output
-    ```
-
-Notes:
-    - Script has to run from models/research
-    - Execute `export PYTHONPATH=$PYTHONPATH:`pwd`:`pwd`/slim`
-    - input_type has to be image_tensor
-    - pipeline_config_path: path for the pipeline.config file used to trained the model
-    - trained_checkpoint_prefix: path to the model.ckpt
-    - output_directory: path to the directory where the frozen graph will be stored
+* `--input_type`: model input type, should be `image_tensor` for object detection in images
+* `--pipeline_config_path`: path to the `pipeline.config` file used for training and creating the checkpoints
+* `--trained_checkpoint_prefix`: path to the checkpoints (e.g. `model.ckpt`) to be exported
+* `--output_directory`: where the frozen graph will be stored

@@ -1,3 +1,4 @@
+import glob
 import io
 import os
 import hashlib
@@ -31,6 +32,38 @@ def float_list_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value=value))
 
 
+def open_sharded_output_tfrecords(exit_stack, base_path, num_shards):
+    """
+    taken from tensorflow/models, file research/object_detection/dataset_tools/tf_record_creation_util.py
+
+    Opens all TFRecord shards for writing and adds them to an exit stack.
+    Args:
+        exit_stack: A context2.ExitStack used to automatically closed the TFRecords
+        opened in this function.
+        base_path: The base path for all shards
+        num_shards: The number of shards
+    Returns:
+        The list of opened TFRecords. Position k in the list corresponds to shard k.
+    """
+    tf_record_output_filenames = [
+        '{}-{:05d}-of-{:05d}'.format(base_path, idx, num_shards)
+        for idx in range(num_shards)
+    ]
+
+    tfrecords = [
+        exit_stack.enter_context(tf.python_io.TFRecordWriter(file_name))
+        for file_name in tf_record_output_filenames
+    ]
+
+    return tfrecords
+
+
+def tfrecords_exist(base_bath):
+    """check for TFRecord shards as created by open_sharded_output_tfrecords()"""
+    matchs = glob.glob(base_bath + '-*-of-*')
+    return len(matchs) > 0
+
+
 def create_bbox_detection_tf_example(image_path, image_annotations, class_dict):
     if not os.path.exists(image_path):
         raise RuntimeError('image does not exist: ' + image_path)
@@ -53,7 +86,7 @@ def create_bbox_detection_tf_example(image_path, image_annotations, class_dict):
     width = int(width)
     height = int(height)
 
-    # hash image
+    # hash image TODO(minhnh) confirm
     image_hash = hashlib.sha256(encoded_image_data).hexdigest()
 
     # create expected bounding box annotations
@@ -62,13 +95,13 @@ def create_bbox_detection_tf_example(image_path, image_annotations, class_dict):
     ymins = []          # List of normalized top y ...
     ymaxs = []          # List of normalized bottom y ...
     class_names = []    # List of string class names for each box
-    classes = []        # List of integer class id's for each box
-    invalid_box_messages = []
+    class_ids = []      # List of integer class id's for each box
+    invalid_box_messages = []   # contain one error message for each invalid bounding box found
 
     objects = image_annotations['objects']
 
     for obj_box in objects:
-        class_id = obj_box['class_id']
+        cls_id = obj_box['class_id']
 
         # normalize box vertices
         x_min_norm = float(obj_box['xmin']) / width
@@ -78,14 +111,14 @@ def create_bbox_detection_tf_example(image_path, image_annotations, class_dict):
 
         # check for invalid box
         if not is_box_valid(x_min_norm, y_min_norm, x_max_norm, y_max_norm, 1.0, 1.0):
-            invalid_box_messages.append("  Object ID: {}; ".format(class_id) +
-                                        "normalized box (xmin, xmax, ymin, ymax): ({:.3f}, {:.3f}, {:.3f}, {:.3f})"
+            invalid_box_messages.append("  Object ID: {}; ".format(cls_id) +
+                                        "normalized box (xmin, xmax, ymin, ymax): ({:.3f}, {:.3f}, {:.3f}, {:.3f})."
                                         .format(x_min_norm, x_max_norm, y_min_norm, y_max_norm))
             continue
 
         # add to annotation lists
-        classes.append(class_id)
-        class_names.append(class_dict[class_id].encode('utf8'))
+        class_ids.append(cls_id)
+        class_names.append(class_dict[cls_id].encode('utf8'))
         xmins.append(x_min_norm)
         xmaxs.append(x_max_norm)
         ymins.append(y_min_norm)
@@ -109,6 +142,6 @@ def create_bbox_detection_tf_example(image_path, image_annotations, class_dict):
         'image/object/bbox/ymin': float_list_feature(ymins),
         'image/object/bbox/ymax': float_list_feature(ymaxs),
         'image/object/class/text': bytes_list_feature(class_names),
-        'image/object/class/label': int64_list_feature(classes),
+        'image/object/class/label': int64_list_feature(class_ids),
     }))
     return tf_example
