@@ -36,7 +36,7 @@ def create_tf_record(annotations_file, classes_filename, output_path, image_dir,
             try:
                 tf_example = create_bbox_detection_tf_example(image_path, example, classes_dict)
             except RuntimeError as e:
-                print(TerminalColors.FAIL + str(e) + TerminalColors.ENDC)
+                TerminalColors.formatted_print(str(e), TerminalColors.FAIL)
                 continue
 
             output_tfrecords[output_shard_index].write(tf_example.SerializeToString())

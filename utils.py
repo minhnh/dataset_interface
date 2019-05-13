@@ -1,4 +1,11 @@
-from builtins import input      # Python 2 compatible
+from builtins import input      # for Python 2 compatibility
+import argparse
+import glob
+
+
+class RawDescriptionAndDefaultsFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
+    """Custom formatter for preserving both indentation and displaying default argument values"""
+    pass
 
 
 class TerminalColors(object):
@@ -11,6 +18,10 @@ class TerminalColors(object):
     ENDC        = '\033[0m'
     BOLD        = '\033[1m'
     UNDERLINE   = '\033[4m'
+
+    @staticmethod
+    def formatted_print(string, format):
+        print(format + string + TerminalColors.ENDC)
 
 
 def is_box_valid(x_min, y_min, x_max, y_max, img_width, img_height):
@@ -49,3 +60,15 @@ def prompt_for_yes_or_no(promt_string, suffix=' [(y)es/(n)o]: ', blocking=True):
         if not blocking:
             raise ValueError('invalid user input for yes/no prompt: ' + reply)
         print("invalid input: '{}', please retry".format(reply))
+
+
+def case_insensitive_glob(pattern):
+    """
+    glob certain file types ignoring case
+
+    :param pattern: file types (i.e. '*.jpg')
+    :return: list of files matching given pattern
+    """
+    def either(c):
+        return '[%s%s]' % (c.lower(), c.upper()) if c.isalpha() else c
+    return glob.glob(''.join(map(either, pattern)))

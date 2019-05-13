@@ -50,7 +50,6 @@ def generate_transformation(bb: BoundingBox, boundaries: tuple) -> np.array:
     bb: BoundingBox -- a BoundingBox object
     boundaries: tuple -- coordinate boundaries; assumed to represent
                          the (row, column) sizes of an image
-
     '''
     use_transformation = False
     t = None
@@ -209,6 +208,7 @@ def augment_data(img_dir_name: str,
 
 def generate_annotation_file(train_annotations_file, train_images):
     # dummy_dict.append({'image_name': 'demo2', 'objects': [{'class_id':1, 'xmin':1, 'xmax':2, 'ymin':2, 'ymax':2},{'class_id':1, 'xmin':1, 'xmax':2, 'ymin':2, 'ymax':2}]})
+    pass
 
 def save_bounding_box(bb, train_annotations_file, img_file_name, class_id):
     if os.path.isfile(train_annotations_file):
