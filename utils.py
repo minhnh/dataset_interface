@@ -1,6 +1,7 @@
 from builtins import input      # for Python 2 compatibility
 import argparse
 import glob
+import os
 
 
 class RawDescriptionAndDefaultsFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
@@ -10,14 +11,14 @@ class RawDescriptionAndDefaultsFormatter(argparse.ArgumentDefaultsHelpFormatter,
 
 class TerminalColors(object):
     """https://stackoverflow.com/questions/287871/how-to-print-colored-text-in-terminal-in-python"""
-    HEADER      = '\033[95m'
-    OKBLUE      = '\033[94m'
-    OKGREEN     = '\033[92m'
-    WARNING     = '\033[93m'
-    FAIL        = '\033[91m'
-    ENDC        = '\033[0m'
-    BOLD        = '\033[1m'
-    UNDERLINE   = '\033[4m'
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
 
     @staticmethod
     def formatted_print(string, format):
@@ -72,3 +73,11 @@ def case_insensitive_glob(pattern):
     def either(c):
         return '[%s%s]' % (c.lower(), c.upper()) if c.isalpha() else c
     return glob.glob(''.join(map(either, pattern)))
+
+
+def glob_extensions_in_directory(dir_name, extensions, file_pattern='*'):
+    """glob all files with specified extensions in given directory"""
+    file_paths = []
+    for ext in extensions:
+        file_paths.extend(case_insensitive_glob(os.path.join(dir_name, file_pattern + '.' + ext)))
+    return file_paths
