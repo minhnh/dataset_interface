@@ -81,3 +81,10 @@ def glob_extensions_in_directory(dir_name, extensions, file_pattern='*'):
     for ext in extensions:
         file_paths.extend(case_insensitive_glob(os.path.join(dir_name, file_pattern + '.' + ext)))
     return file_paths
+
+
+def split_path(file_path):
+    """return (directory, file_name, extension) from a string file path"""
+    file_dir = os.path.dirname(file_path)
+    file_basename = os.path.basename(file_path)
+    return (file_dir, *os.path.splitext(file_basename))

@@ -8,22 +8,39 @@ from dataset_interface.tf_utils import create_bbox_detection_tf_example, open_sh
 from dataset_interface.utils import TerminalColors, prompt_for_yes_or_no
 
 
-def create_tf_record(annotations_file, classes_filename, output_path, image_dir, num_shards):
+def create_tf_record(image_annotation_path, class_annotation_path, output_path, image_dir, num_shards):
+    if tfrecords_exist(output_path) \
+            and not prompt_for_yes_or_no("shards for '{}' exists, overwrite?".format(args.output_file)):
+        # make sure user want to overwrite TFRecord
+        TerminalColors.formatted_print('not overwriting TFRecord, exiting..', TerminalColors.WARNING)
+        return
+
+    # Load class file
+    if not os.path.exists(class_annotation_path):
+        TerminalColors.formatted_print('class annotation file does not exist: ' + class_annotation_path,
+                                       TerminalColors.FAIL)
+        return
+    with open(class_annotation_path, 'r') as yml_file:
+        class_dict = yaml.load(yml_file, Loader=yaml.FullLoader)
+    TerminalColors.formatted_print("\nfound '{}' classes in file '{}'".format(len(class_dict), class_annotation_path),
+                                   TerminalColors.OKBLUE)
+
+    # Load annotations file
+    if not os.path.exists(image_annotation_path):
+        TerminalColors.formatted_print('image annotation file does not exist: ' + image_annotation_path,
+                                       TerminalColors.FAIL)
+        return
+    with open(image_annotation_path, 'r') as annotations_f:
+        annotations = yaml.load(annotations_f, Loader=yaml.FullLoader)
+    TerminalColors.formatted_print("found '{}' image annotations in file '{}'"
+                                   .format(len(annotations), image_annotation_path), TerminalColors.OKBLUE)
+
+    TerminalColors.formatted_print('number of TFRecord shards: {}\n'.format(num_shards),
+                                   TerminalColors.OKBLUE)
 
     with contextlib2.ExitStack() as tf_record_close_stack:
-        output_tfrecords = open_sharded_output_tfrecords(
-            tf_record_close_stack, output_path, num_shards)
+        output_tfrecords = open_sharded_output_tfrecords(tf_record_close_stack, output_path, num_shards)
 
-        # Load annotations file
-        with open(annotations_file, 'r') as annotations_f:
-            annotations = yaml.load(annotations_f, Loader=yaml.FullLoader)
-
-        # Load class file
-        with open(classes_filename, 'r') as yml_file:
-            classes_dict = yaml.load(yml_file, Loader=yaml.FullLoader)
-
-        print('Number of classes ', len(classes_dict))
-        print('Number of annotations ', len(annotations))
         for idx, example in enumerate(annotations):
             output_shard_index = idx % num_shards
             print('Generating tf example for image {} of {} images'.format(idx + 1, len(annotations)))
@@ -34,7 +51,7 @@ def create_tf_record(annotations_file, classes_filename, output_path, image_dir,
                 image_path = os.path.join(image_dir, image_path)
 
             try:
-                tf_example = create_bbox_detection_tf_example(image_path, example, classes_dict)
+                tf_example = create_bbox_detection_tf_example(image_path, example, class_dict)
             except RuntimeError as e:
                 TerminalColors.formatted_print(str(e), TerminalColors.FAIL)
                 continue
@@ -54,11 +71,4 @@ if __name__ == '__main__':
     parser.add_argument('--num_shards', '-n', default=1, help="number of fragments to split the TFRecord into")
     args = parser.parse_args()
 
-    create_record = True
-    if tfrecords_exist(args.output_file):
-        create_record = prompt_for_yes_or_no("shards for '{}' exists, overwrite?".format(args.output_file))
-
-    if create_record:
-        create_tf_record(args.annotation_file, args.class_file, args.output_file, args.image_dir, args.num_shards)
-    else:
-        print('Not creating TFRecord, exiting.')
+    create_tf_record(args.annotation_file, args.class_file, args.output_file, args.image_dir, args.num_shards)

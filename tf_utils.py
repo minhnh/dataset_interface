@@ -5,7 +5,7 @@ import hashlib
 import PIL.Image as pil
 import numpy as np
 import tensorflow as tf
-from dataset_interface.utils import is_box_valid
+from dataset_interface.utils import is_box_valid, split_path
 
 
 def int64_feature(value):
@@ -69,8 +69,7 @@ def create_bbox_detection_tf_example(image_path, image_annotations, class_dict):
         raise RuntimeError('image does not exist: ' + image_path)
 
     # file name handling
-    image_basename = os.path.basename(image_path)
-    image_extension = os.path.splitext(image_basename)[1]
+    _, _, image_extension = split_path(image_path)
 
     with tf.gfile.GFile(image_path, 'rb') as fid:
         encoded_image_data = fid.read()
@@ -123,7 +122,7 @@ def create_bbox_detection_tf_example(image_path, image_annotations, class_dict):
         xmaxs.append(x_max_norm)
         ymins.append(y_min_norm)
         ymaxs.append(y_max_norm)
-    
+
     if invalid_box_messages:
         err_msg = "=====\nInvalid box(es) for image '{}':\n".format(image_path) + '\n'.join(invalid_box_messages)
         raise RuntimeError(err_msg)
