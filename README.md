@@ -3,12 +3,19 @@
 This repository includes:
 
 * A common interface for interacting with different datasets, in context of the
-[b-it-bots RoboCup teams](https://github.com/b-it-bots/).
-* Tools/pipelines for automatically segmenting object masks using the green box (TODO(minhnh) add a picture of
-the green box), using these masks to synthesize data for training object detection models, and training on the
-synthesized data
+  [b-it-bots RoboCup teams](https://github.com/b-it-bots/).
+* Tools/pipelines for automatically segmenting object masks using the green box (picture below), using these masks
+  to synthesize data for training object detection models, and training on the synthesized data
 
 Note: tested only with Python 3.
+
+## Table of contents
+
+* [Table of contents](#table-of-contents)
+* [Installation](#installation)
+* [Common interface for datasets](#common-interface-for-datasets)
+* [Image augmentation](#image-augmentation)
+* [Training](#training)
 
 ## Installation
 
@@ -49,13 +56,18 @@ indoor_cat_names = coco_api.get_sub_category_names('indoor')
 
 ```
 
-## Data augmentation
+## Image augmentation
 
-TODO(minhnh)
+We aim to ease the process of generating data for object detection. Using the green box in the picture below,
+it's possible to automatically segment objects and transform them onto new backgrounds to create new training
+data for an object detection model. A more detailed documentation of how we solve this problem can be found
+in [`docs/image_augmentation.md`](docs/image_augmentation.md).
+
+![Green Box](docs/green_box.png)
 
 ## Training
 
 We primarily train detection models using the tools and model definitions from the
 [`tensorflow/models` repository](http://github.com/tensorflow/models). Documentation of how the tools in
 `tensorflow/models` are utilized for our specific use case can be found in
-[`tensorflow_models.md`](docs/tensorflow_models.md)
+[`docs/tensorflow_models.md`](docs/tensorflow_models.md)
