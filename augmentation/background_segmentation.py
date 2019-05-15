@@ -42,12 +42,12 @@ class BackgroundSegmentation(ABC):
         self._data_dir = data_dir
         TerminalColors.formatted_print("Data directory: " + data_dir, TerminalColors.OKBLUE)
         if not os.path.exists(self._data_dir):
-            raise ValueError("data directory does not exist: " + self._data_dir)
+            raise RuntimeError("data directory does not exist: " + self._data_dir)
 
-        # check image directory
-        self._image_dir = os.path.join(data_dir, 'images')
+        # check directory with green box images
+        self._image_dir = os.path.join(data_dir, 'green_box_images')
         if not os.path.exists(self._image_dir):
-            raise ValueError("image directory does not exist: " + self._image_dir)
+            raise RuntimeError("directory for green box images does not exist: " + self._image_dir)
 
         # check directory to store object masks
         self._mask_dir = os.path.join(data_dir, 'object_masks')
@@ -57,11 +57,11 @@ class BackgroundSegmentation(ABC):
             os.mkdir(self._mask_dir)
         elif os.listdir(self._mask_dir) and self._confirmation:
             if not prompt_for_yes_or_no("Mask directory '{}' not empty, overwrite?".format(self._mask_dir)):
-                raise ValueError("directory '{}' not empty, not overwriting".format(self._mask_dir))
+                raise RuntimeError("directory '{}' not empty, not overwriting".format(self._mask_dir))
 
         # load class annotation file
         if not os.path.exists(class_annotation_file):
-            raise ValueError("class annotation YAML does not exist: " + class_annotation_file)
+            raise RuntimeError("class annotation YAML does not exist: " + class_annotation_file)
         with open(class_annotation_file, 'r') as infile:
             self._class_dict = yaml.load(infile, Loader=yaml.FullLoader)
         TerminalColors.formatted_print("Found '{}' classes in annotation file '{}'"
@@ -95,6 +95,10 @@ class BackgroundSegmentation(ABC):
 
 
 class BackgroundSubtraction(BackgroundSegmentation):
+    """
+    Extension which use background subtraction for segmentation.
+    Will look for empty backgrounds in <data_dir>/green_box_backgrounds
+    """
     DEFAULT_VAR_THRESHOLD = 300
     _backgrounds = None
 
@@ -102,15 +106,15 @@ class BackgroundSubtraction(BackgroundSegmentation):
         super(BackgroundSubtraction, self).__init__(data_dir, class_annotation_file, confirmation=confirmation)
 
         # check background directory for BACKGROUND_SUBTRACTION
-        background_dir = os.path.join(data_dir, 'backgrounds')
+        background_dir = os.path.join(data_dir, 'green_box_backgrounds')
         if not os.path.exists(background_dir):
-            raise ValueError("background directory does not exist: " + background_dir)
+            raise RuntimeError("background directory does not exist: " + background_dir)
 
         # load all backgrounds
         bg_paths = glob_extensions_in_directory(background_dir, ALLOWED_IMAGE_EXTENSIONS)
         self._backgrounds = [cv2.imread(bg) for bg in bg_paths]
         if not self._backgrounds:
-            raise ValueError("found no background in directory: " + background_dir)
+            raise RuntimeError("found no background in directory: " + background_dir)
 
     def _segment_class(self, class_name, image_paths):
         # fine-tune threshold for background subtraction

@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-import sys
+import argparse
+from dataset_interface.utils import TerminalColors
+
 import os
 import numpy as np
-import matplotlib.pyplot as plt
 from imageio import imread, imwrite
-import pandas as pd
 import yaml
 import cv2
 import glob
+
 
 class Vec2D(object):
     def __init__(self, x=None, y=None):
         self.x = x
         self.y = y
+
 
 class BoundingBox(object):
     def __init__(self):
@@ -20,6 +22,7 @@ class BoundingBox(object):
         self.nonzero_cols = None
         self.min_coords = Vec2D()
         self.max_coords = Vec2D()
+
 
 def get_bb_from_mask(segmentation_mask: np.array) -> BoundingBox:
     '''Returns a BoundingBox object with information extracted
@@ -29,19 +32,20 @@ def get_bb_from_mask(segmentation_mask: np.array) -> BoundingBox:
     segmentation_mask: np.array -- a 2D numpy array representing a grayscale image
                                    with a single object in it, where the assumption
                                    is that non-zero pixels represent the object
-
     '''
     bb = BoundingBox()
-    bb.nonzero_rows, bb.nonzero_cols  = np.where(segmentation_mask)
+    bb.nonzero_rows, bb.nonzero_cols = np.where(segmentation_mask)
     bb.min_coords.x, bb.max_coords.x = (np.min(bb.nonzero_cols), np.max(bb.nonzero_cols))
     bb.min_coords.y, bb.max_coords.y = (np.min(bb.nonzero_rows), np.max(bb.nonzero_rows))
     return bb
+
 
 def get_bb(coords):
     bb = BoundingBox()
     bb.min_coords.x, bb.max_coords.x = (np.min(coords[0]), np.max(coords[0]))
     bb.min_coords.y, bb.max_coords.y = (np.min(coords[1]), np.max(coords[1]))
     return bb
+
 
 def generate_transformation(bb: BoundingBox, boundaries: tuple) -> np.array:
     '''Generates a homogeneous transformation matrix of type int that translates,
@@ -93,6 +97,7 @@ def generate_transformation(bb: BoundingBox, boundaries: tuple) -> np.array:
                 use_transformation = False
                 break
     return t
+
 
 def augment_data(img_dir_name: str,
                  background_img_dir: str,
@@ -149,34 +154,33 @@ def augment_data(img_dir_name: str,
         background_paths.append(background_path)
 
     objects_paths = []
-    if perspectives != None:
+    if perspectives is not None:
         for perspective in perspectives:
-            objects = os.listdir(os.path.join(img_dir_name,perspective))
+            objects = os.listdir(os.path.join(img_dir_name, perspective))
             for object in objects:
-                object_path = os.path.join(img_dir_name,perspective,object)
+                object_path = os.path.join(img_dir_name, perspective, object)
                 objects_paths.append(object_path)
     else:
         objects = os.listdir(img_dir_name)
         for object in objects:
-            object_path = os.path.join(img_dir_name,perspective,object)
+            object_path = os.path.join(img_dir_name, perspective, object)
             objects_paths.append(object_path)
 
     augmented_img_counter = 0
 
     training_images = []
-    val_images = []
 
     for background_path in background_paths:
         background_img_original = np.array(imread(background_path), dtype=np.uint8)
         # print(background_path)
-        for _ in range(images_per_background): # Number of images generated using that backgrounds
+        for _ in range(images_per_background):  # Number of images generated using that backgrounds
             background_img = np.array(background_img_original, dtype=np.uint8)
             augmented_objects = []
-            for _ in range(np.random.randint(1,max_objects_per_image)): # Number of objects in the image
+            for _ in range(np.random.randint(1, max_objects_per_image)):  # Number of objects in the image
                 object_path = objects_paths[np.random.randint(len(objects_paths))]
 
                 # Collect object class
-                if perspectives != None:
+                if perspectives is not None:
                     object_class = object_path.split('/')[2]
                 else:
                     object_class = object_path.split('/')[1]
@@ -194,10 +198,10 @@ def augment_data(img_dir_name: str,
                     continue
 
                 # print('Len of images ', len(images))
-                image_full_name = images[np.random.randint(0,len(images))]
+                image_full_name = images[np.random.randint(0, len(images))]
                 # print(image_full_name)
-                while 'background' in image_full_name: # Verify that we do not obtain a background image ={_}
-                    image_full_name = images[np.random.randint(0,len(images))]
+                while 'background' in image_full_name:  # Verify that we do not obtain a background image ={_}
+                    image_full_name = images[np.random.randint(0, len(images))]
                     # print(image_full_name)
                 # Load image
                 img = np.array(imread(image_full_name), dtype=np.uint8)
@@ -214,15 +218,16 @@ def augment_data(img_dir_name: str,
                 segmentation_mask = cv2.imread(segmentation_mask_path, 0)
                 # print(segmentation_mask_path)
                 # Remove noise im the image mask
-                kernel = np.ones((3,3),np.uint8)
-                smoothed = cv2.GaussianBlur(segmentation_mask, (7,7),0)
-                segmentation_mask = cv2.morphologyEx(smoothed,cv2.MORPH_OPEN,kernel, iterations = 10)
+                kernel = np.ones((3, 3), np.uint8)
+                smoothed = cv2.GaussianBlur(segmentation_mask, (7, 7), 0)
+                segmentation_mask = cv2.morphologyEx(smoothed, cv2.MORPH_OPEN, kernel, iterations=10)
 
                 # we get the bounding box of the object and generate a transformation matrix
                 try:
                     bb = get_bb_from_mask(segmentation_mask)
-                except:
-                    print("\033[1;31mInvalid mask  \n {} \n {}\033[0;37m".format(image_full_name, segmentation_mask_path))
+                except Exception:
+                    print("\033[1;31mInvalid mask  \n {} \n {}\033[0;37m"
+                          .format(image_full_name, segmentation_mask_path))
                     continue
 
                 t = generate_transformation(bb, background_img.shape)
@@ -252,53 +257,64 @@ def augment_data(img_dir_name: str,
                 augmented_objects.append(augmented_object)
 
             if 'train' in annotations_file:
-                output_path = os.path.join('training_images',str(augmented_img_counter) \
-                 + '.jpg')
+                output_path = os.path.join('training_images', str(augmented_img_counter) + '.jpg')
             elif 'val' in annotations_file:
-                output_path = os.path.join('validation_images',str(augmented_img_counter) \
-                 + '.jpg')
+                output_path = os.path.join('validation_images', str(augmented_img_counter) + '.jpg')
 
             # print(output_path)
             imwrite(output_path, background_img)
-            training_images.append({'image_name': output_path,'objects': augmented_objects})
+            training_images.append({'image_name': output_path, 'objects': augmented_objects})
 
             # image_name = output_path
             augmented_img_counter += 1
-            print('Augmented {} out of {} images '.format(augmented_img_counter, images_per_background * len(backgrounds)))
+            print('Augmented {} out of {} images '
+                  .format(augmented_img_counter, images_per_background * len(backgrounds)))
 
-            if not augmented_img_counter%1000:
+            if not augmented_img_counter % 1000:
                 generate_annotation_file(annotations_file, training_images)
 
     generate_annotation_file(annotations_file, training_images)
     # print(training_images)
 
-def generate_annotation_file(annotations_file, training_images):
 
-    # with open(annotations_file, 'r') as annotation_file:
-    #     annotations = yaml.safe_load(annotation_file)
-    #
-    # # print(training_images)
-    # # the image_names cannot be repeated!!
+def generate_annotation_file(annotations_file, training_images):
     print('--- Annotations checkpoint --- ')
     with open(annotations_file, 'w') as annotation_file:
-        yaml.safe_dump(training_images, annotation_file,default_flow_style=False,
-                      encoding='utf-8')
+        yaml.safe_dump(training_images, annotation_file, default_flow_style=False, encoding='utf-8')
+
+
+def generate_masks_and_annotations(data_dir, annotation_file):
+    # check required directories
+    TerminalColors.formatted_print('Data directory: ' + data_dir, TerminalColors.OKBLUE)
+    if not os.path.exists(data_dir):
+        raise RuntimeError('data directory does not exist: ' + data_dir)
+
+    greenbox_image_dir = os.path.join(data_dir, 'green_box_images')
+    print('looking for object green box images in: ' + greenbox_image_dir)
+    if not os.path.exists(greenbox_image_dir):
+        raise RuntimeError('directory for object green box images does not exist: ' + greenbox_image_dir)
+
+    mask_dir = os.path.join(data_dir, 'object_masks')
+    print('looking for object masks in: ' + mask_dir)
+    if not os.path.exists(mask_dir):
+        raise RuntimeError('directory for object masks does not exist: ' + mask_dir)
+
 
 if __name__ == '__main__':
-    img_dir_name = sys.argv[1]
-    background_img_dir = sys.argv[2]
-    images_per_background = int(sys.argv[3])
-    annotations_file = sys.argv[4]
-    output_dir = sys.argv[5]
-    class_file_ = sys.argv[6]
+    parser = argparse.ArgumentParser(
+        description="Script to generate training images and annotations for bounding box based object detection."
+                    " This is done by randomly projecting segemented object pixels onto backgrounds, then"
+                    " calculating the corresponding bounding boxes.")
+    parser.add_argument('--data-directory', '-d', required=True,
+                        help='directory where the script will look for images, backgrounds and saved object masks')
+    parser.add_argument('--class-annotations', '-c', required=True,
+                        help='file containing mappings from class ID to class name')
+    args = parser.parse_args()
 
-    with open(class_file_, 'r') as class_file:
-        id_to_classes = yaml.load(class_file, Loader=yaml.FullLoader)
-
-    classes_to_id = dict()
-    for key,value in id_to_classes.items():
-        classes_to_id[value] = key
-
-    print('Generating artificial images...')
-    augment_data(img_dir_name, background_img_dir, images_per_background, annotations_file, output_dir, classes_to_id)
-    print('Artificial images generation complete')
+    try:
+        generate_masks_and_annotations(args.data_directory, args.class_annotations)
+        TerminalColors.formatted_print('image and annotation generation complete', TerminalColors.OKGREEN)
+    except KeyboardInterrupt:
+        TerminalColors.formatted_print('\nscript interrupted', TerminalColors.WARNING)
+    except Exception as e:
+        TerminalColors.formatted_print(e, TerminalColors.FAIL)

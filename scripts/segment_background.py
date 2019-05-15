@@ -17,19 +17,14 @@ def segment_background(arguments):
         TerminalColors.formatted_print("Segmentation method: " + seg_method_enum.name,
                                        TerminalColors.OKBLUE)
     except ValueError:
-        TerminalColors.formatted_print("invalid segmentation method: " + arguments.method, TerminalColors.FAIL)
-        return
+        raise ValueError("invalid segmentation method: " + arguments.method)
 
-    # create segmentation object
-    try:
-        if seg_method_enum == SegmentationMethods.BACKGROUND_SUBTRACTION:
-            bg_segmentor = BackgroundSubtraction(arguments.data_directory, arguments.class_annotations)
-        else:
-            raise ValueError('unsupported segmentation method: ' + seg_method_enum.name)
-        bg_segmentor.segment()
-    except ValueError as e:
-        TerminalColors.formatted_print(str(e), TerminalColors.FAIL)
-        return
+    # create segmentation object and perform segmentation
+    if seg_method_enum == SegmentationMethods.BACKGROUND_SUBTRACTION:
+        bg_segmentor = BackgroundSubtraction(arguments.data_directory, arguments.class_annotations)
+    else:
+        raise ValueError('unsupported segmentation method: ' + seg_method_enum.name)
+    bg_segmentor.segment()
 
 
 if __name__ == '__main__':
@@ -49,3 +44,5 @@ if __name__ == '__main__':
         TerminalColors.formatted_print('segmentation complete', TerminalColors.OKGREEN)
     except KeyboardInterrupt:
         TerminalColors.formatted_print('\nscript interrupted', TerminalColors.WARNING)
+    except Exception as e:
+        TerminalColors.formatted_print(e, TerminalColors.FAIL)

@@ -32,15 +32,15 @@ optional arguments:
                         (default: None)
 ```
 
-The script will look for object images under `<DATA_DIRECTORY>/images`, where images for each object is stored in
-a separated folder. For background subtraction, the script will look for images of the empty green box under
-`<DATA_DIRECTORY>/backgrounds`. Generated masks will be stored under `<DATA_DIRECTORY>/object_masks`, where masks
-for each object will be stored in a separated folder. The directory may then look like this:
+The script will look for object images under `<DATA_DIRECTORY>/green_box_images`, where images for each object
+is stored in a separated folder. For background subtraction, the script will look for images of the empty green box
+under `<DATA_DIRECTORY>/green_box_backgrounds`. Generated masks will be stored under `<DATA_DIRECTORY>/object_masks`,
+where masks for each object will be stored in a separated folder. The directory may then look like this:
 
 ```sh
 <DATA_DIRECTORY>
-├── backgrounds
-├── images
+├── green_box_backgrounds
+├── green_box_images
 │   ├── <class_name_1>
 │   ├── <class_name_2>
 │   └── ...
