@@ -44,4 +44,8 @@ if __name__ == '__main__':
     parser.add_argument('--class-annotations', '-c', required=True,
                         help='file containing mapping from class ID to class name')
 
-    segment_background(parser.parse_args())
+    try:
+        segment_background(parser.parse_args())
+        TerminalColors.formatted_print('segmentation complete', TerminalColors.OKGREEN)
+    except KeyboardInterrupt:
+        TerminalColors.formatted_print('\nscript interrupted', TerminalColors.WARNING)

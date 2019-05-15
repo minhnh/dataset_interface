@@ -5,7 +5,7 @@ import yaml
 import argparse
 import contextlib2
 from dataset_interface.tf_utils import create_bbox_detection_tf_example, open_sharded_output_tfrecords, tfrecords_exist
-from dataset_interface.utils import TerminalColors, prompt_for_yes_or_no
+from dataset_interface.utils import TerminalColors, prompt_for_yes_or_no, print_progress
 
 
 def create_tf_record(image_annotation_path, class_annotation_path, output_path, image_dir, num_shards):
@@ -32,8 +32,9 @@ def create_tf_record(image_annotation_path, class_annotation_path, output_path, 
         return
     with open(image_annotation_path, 'r') as annotations_f:
         annotations = yaml.load(annotations_f, Loader=yaml.FullLoader)
+    num_annotations = len(annotations)
     TerminalColors.formatted_print("found '{}' image annotations in file '{}'"
-                                   .format(len(annotations), image_annotation_path), TerminalColors.OKBLUE)
+                                   .format(num_annotations, image_annotation_path), TerminalColors.OKBLUE)
 
     TerminalColors.formatted_print('number of TFRecord shards: {}\n'.format(num_shards),
                                    TerminalColors.OKBLUE)
@@ -43,7 +44,7 @@ def create_tf_record(image_annotation_path, class_annotation_path, output_path, 
 
         for idx, example in enumerate(annotations):
             output_shard_index = idx % num_shards
-            print('Generating tf example for image {} of {} images'.format(idx + 1, len(annotations)))
+            print_progress(idx + 1, num_annotations, prefix="Generating TFRecord for image ")
 
             image_path = example['image_name']
             if image_dir:

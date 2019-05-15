@@ -21,8 +21,8 @@ class TerminalColors(object):
     UNDERLINE = '\033[4m'
 
     @staticmethod
-    def formatted_print(string, format):
-        print(format + string + TerminalColors.ENDC)
+    def formatted_print(string, format_enum):
+        print('{}{}{}'.format(format_enum, string, TerminalColors.ENDC))
 
 
 def is_box_valid(x_min, y_min, x_max, y_max, img_width, img_height):
@@ -61,6 +61,19 @@ def prompt_for_yes_or_no(promt_string, suffix=' [(y)es/(n)o]: ', blocking=True):
         if not blocking:
             raise ValueError('invalid user input for yes/no prompt: ' + reply)
         print("invalid input: '{}', please retry".format(reply))
+
+
+def prompt_for_float(prompt_string, suffix=': ', blocking=True):
+    while True:
+        reply = str(input(prompt_string + suffix)).strip()
+        try:
+            reply_float = float(reply)
+            return reply_float
+        except ValueError as e:
+            TerminalColors.formatted_print(e, TerminalColors.FAIL)
+            if not blocking:
+                raise
+            continue
 
 
 def case_insensitive_glob(pattern):
