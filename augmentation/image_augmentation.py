@@ -4,7 +4,8 @@ import numpy as np
 import cv2
 from skimage.transform import SimilarityTransform, matrix_transform
 from dataset_interface.utils import TerminalColors, glob_extensions_in_directory, ALLOWED_IMAGE_EXTENSIONS, \
-                                    display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask
+                                    display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask, \
+                                    draw_labeled_boxes
 from dataset_interface.augmentation.background_segmentation import get_image_mask_path
 
 
@@ -186,7 +187,6 @@ class SegmentedObjectCollection(object):
         projected_obj_mask = np.zeros((bg_height, bg_width), dtype=np.uint8)
         projected_obj_mask[transformed_coords[:, 1], transformed_coords[:, 0]] = 255
         projected_obj_mask = cleanup_mask(projected_obj_mask, morph_kernel_size, morph_iter_num)
-        # display_image_and_wait(projected_obj_mask, 'projected object mask')
 
         # denoise projected RGB values
         projected_bgr = np.zeros((bg_height, bg_width, 3), dtype=np.uint8)
@@ -196,7 +196,6 @@ class SegmentedObjectCollection(object):
         kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
         projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
         projected_bgr = apply_image_filters(projected_bgr)
-        # display_image_and_wait(projected_bgr, 'projected object')
 
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
@@ -283,14 +282,17 @@ class ImageAugmenter(object):
         annotations = []
         bg_img_copy = background_image.copy()
         for obj_collection in sampled_collections:
-            generated_ann = {'class_id': obj_collection.class_id}
             bg_img_copy, box = obj_collection.project_segmentation_on_background(bg_img_copy)
-            generated_ann = {'bounding_box': box}
+            generated_ann = {'class_id': obj_collection.class_id,
+                             'xmin': int(box.min_x_norm * box.orig_image_width),
+                             'xmax': int(box.max_x_norm * box.orig_image_width),
+                             'ymin': int(box.min_y_norm * box.orig_image_height),
+                             'ymax': int(box.max_y_norm * box.orig_image_height)}
             annotations.append(generated_ann)
         return bg_img_copy, annotations
 
     def generate_detection_data(self, split_name, output_dir, output_annotation_dir,
-                                num_image_per_bg, max_obj_num_per_bg):
+                                num_image_per_bg, max_obj_num_per_bg, display_boxes=False):
         split_output_dir = os.path.join(output_dir, split_name)
         TerminalColors.formatted_print("generating images for split '{}' under '{}'"
                                        .format(split_name, split_output_dir), TerminalColors.BOLD)
@@ -317,9 +319,22 @@ class ImageAugmenter(object):
         # generate images and annotations
         img_cnt = 0
         total_img_cnt = num_image_per_bg * len(self._augment_backgrounds)
+        zero_pad_num = len(str(total_img_cnt))
         for bg_img in self._augment_backgrounds:
             for _ in range(num_image_per_bg):
                 print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=0.05)
-                generated_image, annotations = self._generate_single_image(bg_img, max_obj_num_per_bg)
-                display_image_and_wait(generated_image, 'synthetic image')
+
+                # generate new image
+                generated_image, box_annotations = self._generate_single_image(bg_img, max_obj_num_per_bg)
+                if display_boxes:
+                    drawn_img = draw_labeled_boxes(generated_image, box_annotations, self._class_dict)
+                    display_image_and_wait(drawn_img, 'box image')
+
+                # write image and annotations
+                img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
+                img_file_path = os.path.join(split_output_dir, img_file_name)
+                annotation = {'image_name': img_file_path, 'objects': box_annotations}
+                cv2.imwrite(img_file_path, generated_image)
+                with open(annotation_path, 'a') as infile:
+                    yaml.dump([annotation], infile, default_flow_style=False)
                 img_cnt += 1

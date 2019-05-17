@@ -126,3 +126,30 @@ def cleanup_mask(mask, morph_kernel_size, morph_iter_num):
     max_area_cnt = max(contours, key=cv2.contourArea)
     mask = cv2.drawContours(np.zeros(mask.shape, dtype=np.uint8), [max_area_cnt], 0, 255, cv2.FILLED)
     return mask
+
+
+def draw_labeled_boxes(image, box_annotations, class_dict, font_scale=1, thickness=2, color=(255, 0, 0), copy=True):
+    if copy:
+        image = image.copy()
+
+    for box_ann in box_annotations:
+        # Note: no checking of box dimensions at the moment, presuming they're within image boundaries
+        cls_name = class_dict[box_ann['class_id']]
+        (txt_width, txt_height), baseline = cv2.getTextSize(cls_name, cv2.FONT_HERSHEY_PLAIN, font_scale, thickness)
+
+        # adjust for top left corner so there's space for label
+        if box_ann['ymin'] < txt_height:
+            box_ann['ymin'] = txt_height
+
+        # draw box
+        box_top_left = (box_ann['xmin'], box_ann['ymin'])
+        box_bottom_right = (box_ann['xmax'], box_ann['ymax'])
+        cv2.rectangle(image, box_top_left, box_bottom_right, color, thickness)
+
+        # draw label with background;
+        txt_top_left = (box_ann['xmin'], box_ann['ymin'] - txt_height)
+        txt_bottom_right = (box_ann['xmin'] + txt_width, box_ann['ymin'] + baseline)
+        cv2.rectangle(image, txt_top_left, txt_bottom_right, color, cv2.FILLED)
+        cv2.putText(image, cls_name, box_top_left, cv2.FONT_HERSHEY_PLAIN, font_scale, (255, 255, 555), 1)
+
+    return image
