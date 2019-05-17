@@ -2,6 +2,10 @@ from builtins import input      # for Python 2 compatibility
 import argparse
 import glob
 import os
+import cv2
+
+
+ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png']
 
 
 class RawDescriptionAndDefaultsFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
@@ -101,3 +105,11 @@ def split_path(file_path):
     file_dir = os.path.dirname(file_path)
     file_basename = os.path.basename(file_path)
     return (file_dir, *os.path.splitext(file_basename))
+
+
+def display_image_and_wait(cv_image, window_name, escape_key=27):
+    """Display image and wait for a specific user input key (default: 'Esc')"""
+    cv2.imshow(window_name, cv_image)
+    while cv2.waitKey(0) != escape_key:
+        continue
+    cv2.destroyWindow(window_name)
