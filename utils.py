@@ -2,6 +2,7 @@ from builtins import input      # for Python 2 compatibility
 import argparse
 import glob
 import os
+import numpy as np
 import cv2
 
 
@@ -113,3 +114,15 @@ def display_image_and_wait(cv_image, window_name, escape_key=27):
     while cv2.waitKey(0) != escape_key:
         continue
     cv2.destroyWindow(window_name)
+
+
+def cleanup_mask(mask, morph_kernel_size, morph_iter_num):
+    """apply morphology and contour detection for mask cleanup"""
+    kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
+
+    # use contour detection to clean up the mask - use only the largest contour as the mask
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
+    max_area_cnt = max(contours, key=cv2.contourArea)
+    mask = cv2.drawContours(np.zeros(mask.shape, dtype=np.uint8), [max_area_cnt], 0, 255, cv2.FILLED)
+    return mask

@@ -9,7 +9,7 @@ import numpy as np
 import cv2
 from dataset_interface.utils import TerminalColors, prompt_for_yes_or_no, prompt_for_float, \
                                     glob_extensions_in_directory, split_path, ALLOWED_IMAGE_EXTENSIONS, \
-                                    display_image_and_wait
+                                    display_image_and_wait, cleanup_mask
 
 
 def get_image_mask_path(image_path, mask_dir):
@@ -186,12 +186,4 @@ class BackgroundSubtraction(BackgroundSegmentation):
             subtractor.apply(bg)
         mask = subtractor.apply(image)
 
-        # apply morphology operation to clean up mask
-        kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
-
-        # use contour detection to clean up the mask - use only the largest contour as the mask
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
-        max_area_cnt = max(contours, key=cv2.contourArea)
-        mask = cv2.drawContours(np.zeros(mask.shape, dtype=np.uint8), [max_area_cnt], 0, 255, cv2.FILLED)
-        return mask
+        return cleanup_mask(mask, morph_kernel_size, morph_iter_num)

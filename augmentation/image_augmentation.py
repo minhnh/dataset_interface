@@ -4,12 +4,12 @@ import numpy as np
 import cv2
 from skimage.transform import SimilarityTransform, matrix_transform
 from dataset_interface.utils import TerminalColors, glob_extensions_in_directory, ALLOWED_IMAGE_EXTENSIONS, \
-                                    display_image_and_wait, prompt_for_yes_or_no, print_progress
+                                    display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask
 from dataset_interface.augmentation.background_segmentation import get_image_mask_path
 
 
 def apply_random_transformation(background_size, segmented_box, margin=0.1, max_obj_size_in_bg=0.4):
-    """create transformation for 2D coordinates nomalized to image size"""
+    """apply a random transformation to 2D coordinates nomalized to image size"""
     orig_coords_norm = segmented_box.segmented_coords_homog_norm[:, :2]
     # translate object coordinates to the object center's frame, i.e. whitens
     whitened_coords_norm = orig_coords_norm - (segmented_box.midpoint_x_norm, segmented_box.midpoint_y_norm)
@@ -41,7 +41,30 @@ def apply_random_transformation(background_size, segmented_box, margin=0.1, max_
     return transformed_coords_norm
 
 
+def apply_image_filters(bgr_image, prob_rand_bright=1.0, bright_shift_range=(-5, 5)):
+    """
+    apply image filters to image
+    TODO(minhnh) add color and contrast shifts
+    """
+    if np.random.uniform() < prob_rand_bright:
+        # randomly change brightness at a certain probability
+        hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+        rand_bright_ship = np.random.randint(*bright_shift_range)
+        h, s, v = cv2.split(hsv)
+        lim = 255 - rand_bright_ship
+        v[v > lim] = 255
+        np.add(v[v <= lim], rand_bright_ship, out=v[v <= lim], casting="unsafe")
+        final_hsv = cv2.merge((h, s, v))
+        bgr_image = cv2.cvtColor(final_hsv, cv2.COLOR_HSV2BGR)
+
+    return bgr_image
+
+
 class BoundingBox(object):
+    """
+    contains geometric info calculated from segmented 2D coordinates of an object
+    all values are normalized to image dimensions
+    """
     min_x_norm = None
     max_x_norm = None
     min_y_norm = None
@@ -79,35 +102,26 @@ class BoundingBox(object):
 
 
 class SegmentedObject(object):
-    _max_dimension = None
-    _bgr_image = None
-    _mask_image = None
-    _segmented_box = None
+    """"contains information processed from a single image-mask pair"""
+    max_dimension = None
+    bgr_image = None
+    mask_image = None
+    segmented_box = None
+    segmented_x_coords = None
+    segmented_y_coords = None
 
     def __init__(self, image_path, mask_path):
         # read color and mask images
-        self._bgr_image = cv2.imread(image_path)
-        self._mask_image = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        self.bgr_image = cv2.imread(image_path)
+        self.mask_image = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
 
-        segmented_y_coords, segmented_x_coords = np.where(self._mask_image)
+        self.segmented_y_coords, self.segmented_x_coords = np.where(self.mask_image)
 
         # calculate maximum pixel dimension from the segmented coordinates
-        self._segmented_box = BoundingBox(segmented_x_coords, segmented_y_coords, self._mask_image.shape)
-
-    @property
-    def segmented_box(self):
-        return self._segmented_box
-
-    @property
-    def segmented_coords_homog(self):
-        return self._segmented_coords_homog
-
-    @property
-    def bgr_image(self):
-        return self._bgr_image
+        self.segmented_box = BoundingBox(self.segmented_x_coords, self.segmented_y_coords, self.mask_image.shape)
 
     def view_segmented_color_img(self):
-        segmented_bgr = cv2.bitwise_and(self._bgr_image, self._bgr_image, mask=self._mask_image)
+        segmented_bgr = cv2.bitwise_and(self.bgr_image, self.bgr_image, mask=self.mask_image)
         display_image_and_wait(segmented_bgr, 'segmented_object')
 
 
@@ -162,11 +176,32 @@ class SegmentedObjectCollection(object):
         transformed_coords_norm = apply_random_transformation((bg_height, bg_width), rand_segmentation.segmented_box)
 
         # denormalize transformed coordinates, preserving aspect ratio, but making sure the object is within
-        # background frame
+        # background image
         denorm_factor = min(bg_height, bg_width)
         transformed_coords = np.array(transformed_coords_norm * denorm_factor, dtype=int)
-        background_image[transformed_coords[:, 1], transformed_coords[:, 0], :] = (255, 0, 0)
-        new_box = BoundingBox(transformed_coords[:, 0], transformed_coords[:, 1], (bg_height, bg_width))
+
+        # create and clean a new mask for the projected pixels
+        morph_kernel_size = 2
+        morph_iter_num = 1
+        projected_obj_mask = np.zeros((bg_height, bg_width), dtype=np.uint8)
+        projected_obj_mask[transformed_coords[:, 1], transformed_coords[:, 0]] = 255
+        projected_obj_mask = cleanup_mask(projected_obj_mask, morph_kernel_size, morph_iter_num)
+        # display_image_and_wait(projected_obj_mask, 'projected object mask')
+
+        # denoise projected RGB values
+        projected_bgr = np.zeros((bg_height, bg_width, 3), dtype=np.uint8)
+        projected_bgr[transformed_coords[:, 1], transformed_coords[:, 0], :] = \
+            rand_segmentation.bgr_image[rand_segmentation.segmented_y_coords,
+                                        rand_segmentation.segmented_x_coords]
+        kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
+        projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
+        projected_bgr = apply_image_filters(projected_bgr)
+        # display_image_and_wait(projected_bgr, 'projected object')
+
+        # write to background image
+        cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
+        background_image[cleaned_y_coords, clean_x_coords] = projected_bgr[cleaned_y_coords, clean_x_coords]
+        new_box = BoundingBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width))
         return background_image, new_box
 
 
