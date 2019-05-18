@@ -4,9 +4,6 @@ This document describes how the tools and model definitions in the
 [`tensorflow/models` repository](http://github.com/tensorflow/models) are used for training detection models for the
 b-it-bots@Home team.
 
-## Table of contents
-
-* [Table of contents](#table-of-contents)
 * [Generate protobuf label map file](#generate-protobuf-label-map-file)
 * [Generate `TFRecord`'s from images and annotations](#generate-tfrecords-from-images-and-annotations)
 * [Training process](#training-process)

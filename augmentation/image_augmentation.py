@@ -127,7 +127,7 @@ class SegmentedObject(object):
 
 
 class SegmentedObjectCollection(object):
-    """Collection which instances of 'SegmentedObject''s, one for each image-mask pair"""
+    """Collection of instances of 'SegmentedObject''s, one for each image-mask pair"""
     _class_id = None
     _segmented_objects = None
 
@@ -205,11 +205,11 @@ class SegmentedObjectCollection(object):
 
 
 class ImageAugmenter(object):
+    class_dict = None
     _data_dir = None
     _greenbox_image_dir = None
     _mask_dir = None
     _augment_backgrounds = None
-    _class_dict = None
     _segmented_object_collections = None
 
     def __init__(self, data_dir, class_annotation_file):
@@ -248,13 +248,13 @@ class ImageAugmenter(object):
         if not os.path.exists(class_annotation_file):
             raise RuntimeError('class annotation file does not exist: ' + class_annotation_file)
         with open(class_annotation_file, 'r') as infile:
-            self._class_dict = yaml.load(infile, Loader=yaml.FullLoader)
+            self.class_dict = yaml.load(infile, Loader=yaml.FullLoader)
 
         # load segmented objects
-        TerminalColors.formatted_print("Loading object masks for '{}' classes".format(len(self._class_dict)),
+        TerminalColors.formatted_print("Loading object masks for '{}' classes".format(len(self.class_dict)),
                                        TerminalColors.OKBLUE)
         self._segmented_object_collections = {}
-        for cls_id, cls_name in self._class_dict.items():
+        for cls_id, cls_name in self.class_dict.items():
             obj_img_dir = os.path.join(self._greenbox_image_dir, cls_name)
             obj_mask_dir = os.path.join(self._mask_dir, cls_name)
 
@@ -267,17 +267,14 @@ class ImageAugmenter(object):
                 TerminalColors.formatted_print("skipping class '{}': {}".format(cls_name, e), TerminalColors.WARNING)
                 continue
 
-            # test_obj = self._segmented_object_collections[cls_id]._segmented_objects[0]
-            # print(test_obj._segmented_coords_homog.shape)
-            # test_obj.view_segmented_color_img()
-
     def _sample_classes(self, max_obj_num_per_bg):
         # TODO(minhnh) ensure balance sampling
         num_obj = np.random.randint(1, max_obj_num_per_bg + 1)
         sampled_class_ids = np.random.choice(list(self._segmented_object_collections.keys()), num_obj)
         return [self._segmented_object_collections[cls_id] for cls_id in sampled_class_ids]
 
-    def _generate_single_image(self, background_image, max_obj_num_per_bg):
+    def generate_single_image(self, background_image, max_obj_num_per_bg):
+        """generate a single image and its bounding box annotations"""
         sampled_collections = self._sample_classes(max_obj_num_per_bg)
         annotations = []
         bg_img_copy = background_image.copy()
@@ -291,8 +288,13 @@ class ImageAugmenter(object):
             annotations.append(generated_ann)
         return bg_img_copy, annotations
 
-    def generate_detection_data(self, split_name, output_dir, output_annotation_dir,
-                                num_image_per_bg, max_obj_num_per_bg, display_boxes=False):
+    def generate_detection_data(self, split_name, output_dir, output_annotation_dir, num_image_per_bg,
+                                max_obj_num_per_bg, display_boxes=False, write_chunk_ratio=0.05):
+        """
+        The main function which generate
+        - generate synthetic images under <outpu_dir>/<split_name>
+        - generate
+        """
         split_output_dir = os.path.join(output_dir, split_name)
         TerminalColors.formatted_print("generating images for split '{}' under '{}'"
                                        .format(split_name, split_output_dir), TerminalColors.BOLD)
@@ -313,28 +315,31 @@ class ImageAugmenter(object):
                 raise RuntimeError("not overwriting '{}'".format(annotation_path))
 
         # store a reasonable value for the maximum number of objects projected onto each background
-        if max_obj_num_per_bg <= 0 or max_obj_num_per_bg > len(self._class_dict):
-            max_obj_num_per_bg = len(self._class_dict)
+        if max_obj_num_per_bg <= 0 or max_obj_num_per_bg > len(self.class_dict):
+            max_obj_num_per_bg = len(self.class_dict)
 
         # generate images and annotations
         img_cnt = 0
         total_img_cnt = num_image_per_bg * len(self._augment_backgrounds)
         zero_pad_num = len(str(total_img_cnt))
+        annotations = []
         for bg_img in self._augment_backgrounds:
             for _ in range(num_image_per_bg):
-                print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=0.05)
+                if print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
+                    # periodically dump annotations
+                    with open(annotation_path, 'a') as infile:
+                        yaml.dump(annotations, infile, default_flow_style=False)
+                        annotations = []
 
                 # generate new image
-                generated_image, box_annotations = self._generate_single_image(bg_img, max_obj_num_per_bg)
+                generated_image, box_annotations = self.generate_single_image(bg_img, max_obj_num_per_bg)
                 if display_boxes:
-                    drawn_img = draw_labeled_boxes(generated_image, box_annotations, self._class_dict)
+                    drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
                     display_image_and_wait(drawn_img, 'box image')
 
                 # write image and annotations
                 img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
                 img_file_path = os.path.join(split_output_dir, img_file_name)
-                annotation = {'image_name': img_file_path, 'objects': box_annotations}
+                annotations.append({'image_name': img_file_path, 'objects': box_annotations})
                 cv2.imwrite(img_file_path, generated_image)
-                with open(annotation_path, 'a') as infile:
-                    yaml.dump([annotation], infile, default_flow_style=False)
                 img_cnt += 1

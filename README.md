@@ -9,9 +9,6 @@ This repository includes:
 
 Note: tested only with Python 3.
 
-## Table of contents
-
-* [Table of contents](#table-of-contents)
 * [Installation](#installation)
 * [Common interface for datasets](#common-interface-for-datasets)
 * [Image augmentation](#image-augmentation)

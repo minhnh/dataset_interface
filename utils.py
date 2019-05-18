@@ -44,6 +44,7 @@ def print_progress(current_index, total, prefix="", fraction=0.1):
     """
     Print progress every time the current_index match a multiple of a specified fraction of the total count
     For example, with the default fraction 0.1, the function would only print at 10%, 20%, and so on
+    @return True if printing, False otherwise
     """
     increment = int(total * fraction)
     if increment == 0:
@@ -52,6 +53,8 @@ def print_progress(current_index, total, prefix="", fraction=0.1):
 
     if current_index % increment == 0:
         print(prefix + "{}/{}".format(current_index, total))
+        return True
+    return False
 
 
 def prompt_for_yes_or_no(promt_string, suffix=' [(y)es/(n)o]: ', blocking=True):
