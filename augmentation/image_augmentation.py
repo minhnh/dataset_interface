@@ -162,7 +162,7 @@ class SegmentedObjectCollection(object):
             except Exception as e:
                 TerminalColors.formatted_print("failed to process image '{}' and mask '{}': {}"
                                                .format(img_path, mask_path, e), TerminalColors.FAIL)
-                raise
+                continue
 
     @property
     def class_id(self):

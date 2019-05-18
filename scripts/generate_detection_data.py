@@ -68,4 +68,3 @@ if __name__ == '__main__':
         TerminalColors.formatted_print('\nscript interrupted', TerminalColors.WARNING)
     except Exception as e:
         TerminalColors.formatted_print(e, TerminalColors.FAIL)
-        raise

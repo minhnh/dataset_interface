@@ -72,4 +72,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_shards', '-n', default=1, help="number of fragments to split the TFRecord into")
     args = parser.parse_args()
 
-    create_tf_record(args.annotation_file, args.class_file, args.output_file, args.image_dir, args.num_shards)
+    try:
+        create_tf_record(args.annotation_file, args.class_file, args.output_file, args.image_dir, args.num_shards)
+        TerminalColors.formatted_print('TFRecord generation complete', TerminalColors.OKGREEN)
+    except KeyboardInterrupt:
+        TerminalColors.formatted_print('\nscript interrupted', TerminalColors.WARNING)
+    except Exception as e:
+        TerminalColors.formatted_print(e, TerminalColors.FAIL)
