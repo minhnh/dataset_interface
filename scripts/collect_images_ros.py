@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import cv2
 import os
 import re
 import sys
@@ -7,17 +8,6 @@ import time
 import yaml
 from dataset_interface.utils import TerminalColors, prompt_for_yes_or_no, prompt_for_float, \
                                     glob_extensions_in_directory, ALLOWED_IMAGE_EXTENSIONS
-
-try:
-    import rospy
-    import cv_bridge
-    from sensor_msgs.msg import Image as ImageMsg
-except ImportError:
-    TerminalColors.formatted_print('This script is meant to work with ROS, please run it from a ROS enabled system.',
-                                   TerminalColors.FAIL)
-    sys.exit(1)
-
-import cv2
 
 
 def find_largest_img_num(cls_image_dir, class_name):
@@ -108,6 +98,15 @@ if __name__ == '__main__':
     parser.add_argument('--sleep-time', '-s', default=0.5,
                         help="Delay in seconds between taking each picture")
     args = parser.parse_args()
+
+    try:
+        import rospy
+        import cv_bridge
+        from sensor_msgs.msg import Image as ImageMsg
+    except ImportError:
+        TerminalColors.formatted_print(
+            'This script is meant to work with ROS, please run it from a ROS enabled system.', TerminalColors.FAIL)
+        sys.exit(1)
 
     try:
         collect_images(args.topic_name, args.image_dir, args.class_file, args.sleep_time)

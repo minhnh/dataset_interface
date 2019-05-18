@@ -4,6 +4,7 @@ TODO(minhnh) add and link to Jupyter notebook example
 
 * [Background segmentation](#background-segmentation)
 * [Generating images and bounding box annotations from segmented masks](#generating-images-and-bounding-box-annotations-from-segmented-masks)
+* [Colect images from a ROS topic](#colect-images-from-a-ros-topic)
 
 ## Background segmentation
 
@@ -127,3 +128,41 @@ creating image 1000/1000
 do you want to generate images for another dataset split? [(y)es/(n)o]: n
 image and annotation generation complete
 ```
+
+## Colect images from a ROS topic
+
+To directly collect images from the robot, a simple script that read `sensor_msgs/Image` messages from a
+[ROS](http://www.ros.org/) topic is also included. Usage:
+
+```sh
+$ scripts/collect_images_ros.py -h
+usage: collect_images_ros.py [-h] --topic-name TOPIC_NAME --image-dir
+                             IMAGE_DIR --class-file CLASS_FILE
+                             [--sleep-time SLEEP_TIME]
+
+helper script to collect images from a ROS topic given a class YAML annotation
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --topic-name TOPIC_NAME, -t TOPIC_NAME
+                        'sensor_msgs/Image' topic to subscribe to (default:
+                        None)
+  --image-dir IMAGE_DIR, -d IMAGE_DIR
+                        Location to store the taken images (default: None)
+  --class-file CLASS_FILE, -c CLASS_FILE
+                        YAML file which contains the mappings from class ID to
+                        class names (default: None)
+  --sleep-time SLEEP_TIME, -s SLEEP_TIME
+                        Delay in seconds between taking each picture (default:
+                        0.5)
+```
+
+For example, for collecting green box images for objects, you may execute:
+
+```sh
+scripts/collect_image_ros.py -t ${IMAGE_TOPIC} -d ${DATA_DIRECTORY}/green_box_images -c ${CLASS_ANNOTATIONS}
+```
+
+This will save images for each class under `${DATA_DIRECTORY}/green_box_images/<class_name>`. For each class, the user
+will be prompted to input the number of images to take until done, allowing changing the object orientation and
+camera perspective in between.
