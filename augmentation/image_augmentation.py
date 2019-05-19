@@ -3,6 +3,7 @@ import yaml
 import numpy as np
 import cv2
 from skimage.transform import SimilarityTransform, matrix_transform
+from dataset_interface.common.bounding_box import SegmentedBox
 from dataset_interface.utils import TerminalColors, glob_extensions_in_directory, ALLOWED_IMAGE_EXTENSIONS, \
                                     display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask, \
                                     draw_labeled_boxes
@@ -13,7 +14,7 @@ def apply_random_transformation(background_size, segmented_box, margin=0.1, max_
     """apply a random transformation to 2D coordinates nomalized to image size"""
     orig_coords_norm = segmented_box.segmented_coords_homog_norm[:, :2]
     # translate object coordinates to the object center's frame, i.e. whitens
-    whitened_coords_norm = orig_coords_norm - (segmented_box.midpoint_x_norm, segmented_box.midpoint_y_norm)
+    whitened_coords_norm = orig_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
 
     # then generate a random rotation around the z-axis (perpendicular to the image plane), and limit the object scale
     # to maximum (default) 50% of the background image, i.e. the normalized largest dimension of the object must be at
@@ -61,47 +62,6 @@ def apply_image_filters(bgr_image, prob_rand_bright=1.0, bright_shift_range=(-5,
     return bgr_image
 
 
-class BoundingBox(object):
-    """
-    contains geometric info calculated from segmented 2D coordinates of an object
-    all values are normalized to image dimensions
-    """
-    min_x_norm = None
-    max_x_norm = None
-    min_y_norm = None
-    max_y_norm = None
-    width_norm = None
-    height_norm = None
-    midpoint_x_norm = None
-    midpoint_y_norm = None
-    max_dimension_norm = None
-    orig_image_width = None
-    orig_image_height = None
-    segmented_coords_homog_norm = None
-
-    def __init__(self, x_coords, y_coords, image_size):
-        self.orig_image_height, self.orig_image_width = image_size
-
-        # create a homogeneous matrix from the normalized segmented coordinates for applying transformations
-        self.segmented_coords_homog_norm = np.vstack((x_coords / self.orig_image_width,
-                                                      y_coords / self.orig_image_height,
-                                                      np.ones(len(x_coords))))
-        self.segmented_coords_homog_norm = self.segmented_coords_homog_norm.transpose()
-
-        # calculate normalized pixel extrema from the normalized segmented coordinates
-        self.min_x_norm, self.max_x_norm = (np.min(self.segmented_coords_homog_norm[:, 0]),
-                                            np.max(self.segmented_coords_homog_norm[:, 0]))
-        self.min_y_norm, self.max_y_norm = (np.min(self.segmented_coords_homog_norm[:, 1]),
-                                            np.max(self.segmented_coords_homog_norm[:, 1]))
-
-        # calculate normalized pixel dimensions
-        self.width_norm = self.max_x_norm - self.min_x_norm
-        self.height_norm = self.max_y_norm - self.min_y_norm
-        self.midpoint_x_norm = self.min_x_norm + self.width_norm / 2
-        self.midpoint_y_norm = self.min_y_norm + self.height_norm / 2
-        self.max_dimension_norm = np.sqrt(self.width_norm**2 + self.height_norm**2)
-
-
 class SegmentedObject(object):
     """"contains information processed from a single image-mask pair"""
     max_dimension = None
@@ -119,7 +79,7 @@ class SegmentedObject(object):
         self.segmented_y_coords, self.segmented_x_coords = np.where(self.mask_image)
 
         # calculate maximum pixel dimension from the segmented coordinates
-        self.segmented_box = BoundingBox(self.segmented_x_coords, self.segmented_y_coords, self.mask_image.shape)
+        self.segmented_box = SegmentedBox(self.segmented_x_coords, self.segmented_y_coords, self.mask_image.shape)
 
     def view_segmented_color_img(self):
         segmented_bgr = cv2.bitwise_and(self.bgr_image, self.bgr_image, mask=self.mask_image)
@@ -200,7 +160,7 @@ class SegmentedObjectCollection(object):
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
         background_image[cleaned_y_coords, clean_x_coords] = projected_bgr[cleaned_y_coords, clean_x_coords]
-        new_box = BoundingBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width))
+        new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width))
         return background_image, new_box
 
 
@@ -281,10 +241,8 @@ class ImageAugmenter(object):
         for obj_collection in sampled_collections:
             bg_img_copy, box = obj_collection.project_segmentation_on_background(bg_img_copy)
             generated_ann = {'class_id': obj_collection.class_id,
-                             'xmin': int(box.min_x_norm * box.orig_image_width),
-                             'xmax': int(box.max_x_norm * box.orig_image_width),
-                             'ymin': int(box.min_y_norm * box.orig_image_height),
-                             'ymax': int(box.max_y_norm * box.orig_image_height)}
+                             'xmin': int(box.x_min), 'xmax': int(box.x_max),
+                             'ymin': int(box.y_min), 'ymax': int(box.y_max)}
             annotations.append(generated_ann)
         return bg_img_copy, annotations
 
