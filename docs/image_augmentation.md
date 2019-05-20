@@ -92,6 +92,8 @@ optional arguments:
   --output-annotation-dir OUTPUT_ANNOTATION_DIR, -a OUTPUT_ANNOTATION_DIR
                         (optional) directory to store the generated YAML
                         annotations (default: None)
+  --display-boxes, -b   (optional) whether to display the synthetic images
+                        with visualized bounding boxes (default: False)
 ```
 
 The script will look for the objects' masks and green box images in the directory as specified in the

@@ -3,7 +3,7 @@ import yaml
 import numpy as np
 import cv2
 from skimage.transform import SimilarityTransform, matrix_transform
-from dataset_interface.common.bounding_box import SegmentedBox
+from dataset_interface.common import SegmentedBox
 from dataset_interface.utils import TerminalColors, glob_extensions_in_directory, ALLOWED_IMAGE_EXTENSIONS, \
                                     display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask, \
                                     draw_labeled_boxes
@@ -88,11 +88,11 @@ class SegmentedObject(object):
 
 class SegmentedObjectCollection(object):
     """Collection of instances of 'SegmentedObject''s, one for each image-mask pair"""
-    _class_id = None
+    class_id = None
     _segmented_objects = None
 
     def __init__(self, class_id, obj_img_dir, obj_mask_dir):
-        self._class_id = class_id
+        self.class_id = class_id
 
         # check directories
         if not os.path.isdir(obj_img_dir):
@@ -123,10 +123,6 @@ class SegmentedObjectCollection(object):
                 TerminalColors.formatted_print("failed to process image '{}' and mask '{}': {}"
                                                .format(img_path, mask_path, e), TerminalColors.FAIL)
                 continue
-
-    @property
-    def class_id(self):
-        return self._class_id
 
     def project_segmentation_on_background(self, background_image):
         # choose random segmentation from collection
@@ -160,7 +156,7 @@ class SegmentedObjectCollection(object):
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
         background_image[cleaned_y_coords, clean_x_coords] = projected_bgr[cleaned_y_coords, clean_x_coords]
-        new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width))
+        new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width), class_id=self.class_id)
         return background_image, new_box
 
 
@@ -240,9 +236,7 @@ class ImageAugmenter(object):
         bg_img_copy = background_image.copy()
         for obj_collection in sampled_collections:
             bg_img_copy, box = obj_collection.project_segmentation_on_background(bg_img_copy)
-            generated_ann = {'class_id': obj_collection.class_id,
-                             'xmin': int(box.x_min), 'xmax': int(box.x_max),
-                             'ymin': int(box.y_min), 'ymax': int(box.y_max)}
+            generated_ann = box.to_dict()
             annotations.append(generated_ann)
         return bg_img_copy, annotations
 

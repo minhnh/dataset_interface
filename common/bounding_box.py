@@ -10,8 +10,12 @@ class BoundingBox(object):
     y_center = None
     width = None
     height = None
+    class_id = None
 
-    def __init__(self, x_min, y_min, x_max=None, y_max=None, width=None, height=None):
+    def __init__(self, x_min, y_min, x_max=None, y_max=None, width=None, height=None, class_id=None):
+        # check if class ID is None at higher level
+        self.class_id = class_id
+
         self.x_min = x_min
         self.y_min = y_min
         if x_max is not None and y_max is not None:
@@ -29,6 +33,12 @@ class BoundingBox(object):
         self.x_center = self.x_min + self.width / 2
         self.y_center = self.y_min + self.height / 2
 
+    def to_dict(self):
+        box_dict = {'xmin': int(self.x_min), 'xmax': int(self.x_max),
+                    'ymin': int(self.y_min), 'ymax': int(self.y_max),
+                    'class_id': self.class_id}
+        return box_dict
+
 
 class NormalizedBox(BoundingBox):
     x_min_norm = None
@@ -40,8 +50,8 @@ class NormalizedBox(BoundingBox):
     image_height = None
     image_width = None
 
-    def __init__(self, image_size, x_min, y_min, x_max=None, y_max=None, width=None, height=None):
-        super().__init__(x_min, y_min, x_max=x_max, y_max=y_max, width=width, height=height)
+    def __init__(self, image_size, x_min, y_min, x_max=None, y_max=None, width=None, height=None, class_id=None):
+        super().__init__(x_min, y_min, x_max=x_max, y_max=y_max, width=width, height=height, class_id=class_id)
 
         self.image_height, self.image_width = image_size
         self.x_min_norm, self.x_max_norm = self.x_min / self.image_width, self.x_max / self.image_width
@@ -59,10 +69,10 @@ class SegmentedBox(NormalizedBox):
     max_dimension_norm = None
     segmented_coords_homog_norm = None
 
-    def __init__(self, x_coords, y_coords, image_size):
+    def __init__(self, x_coords, y_coords, image_size, class_id=None):
         x_min, x_max = np.min(x_coords), np.max(x_coords)
         y_min, y_max = np.min(y_coords), np.max(y_coords)
-        super().__init__(image_size, x_min, y_min, x_max=x_max, y_max=y_max)
+        super().__init__(image_size, x_min, y_min, x_max=x_max, y_max=y_max, class_id=class_id)
 
         # create a homogeneous matrix from the normalized segmented coordinates for applying transformations
         self.segmented_coords_homog_norm = np.vstack((x_coords / self.image_width,

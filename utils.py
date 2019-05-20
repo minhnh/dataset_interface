@@ -4,6 +4,7 @@ import glob
 import os
 import numpy as np
 import cv2
+from dataset_interface.common import BoundingBox
 
 
 ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png']
@@ -136,23 +137,32 @@ def draw_labeled_boxes(image, box_annotations, class_dict, font_scale=1, thickne
         image = image.copy()
 
     for box_ann in box_annotations:
+        if isinstance(box_ann, BoundingBox):
+            cls_id = box_ann.class_id
+            if cls_id is None:
+                raise ValueError("'BoundingBox' instance does not have 'class_id' value specified")
+            cls_name = class_dict[cls_id]
+            x_min, x_max, y_min, y_max = box_ann.x_min, box_ann.x_max, box_ann.y_min, box_ann.y_max
+        elif isinstance(box_ann, dict):
+            cls_name = class_dict[box_ann['class_id']]
+            x_min, x_max, y_min, y_max = box_ann['xmin'], box_ann['xmax'], box_ann['ymin'], box_ann['ymax']
+        else:
+            raise ValueError("Unexpected annotation type: {}".format(type(box_ann)))
+
         # Note: no checking of box dimensions at the moment, presuming they're within image boundaries
-        cls_name = class_dict[box_ann['class_id']]
         (txt_width, txt_height), baseline = cv2.getTextSize(cls_name, cv2.FONT_HERSHEY_PLAIN, font_scale, thickness)
 
         # adjust for top left corner so there's space for label
-        if box_ann['ymin'] < txt_height:
-            box_ann['ymin'] = txt_height
+        if y_min < txt_height:
+            y_min = txt_height
 
         # draw box
-        box_top_left = (box_ann['xmin'], box_ann['ymin'])
-        box_bottom_right = (box_ann['xmax'], box_ann['ymax'])
-        cv2.rectangle(image, box_top_left, box_bottom_right, color, thickness)
+        cv2.rectangle(image, (x_min, y_min), (x_max, y_max), color, thickness)
 
         # draw label with background;
-        txt_top_left = (box_ann['xmin'], box_ann['ymin'] - txt_height)
-        txt_bottom_right = (box_ann['xmin'] + txt_width, box_ann['ymin'] + baseline)
+        txt_top_left = (x_min, y_min - txt_height)
+        txt_bottom_right = (x_min + txt_width, y_min + baseline)
         cv2.rectangle(image, txt_top_left, txt_bottom_right, color, cv2.FILLED)
-        cv2.putText(image, cls_name, box_top_left, cv2.FONT_HERSHEY_PLAIN, font_scale, (255, 255, 555), 1)
+        cv2.putText(image, cls_name, (x_min, y_min), cv2.FONT_HERSHEY_PLAIN, font_scale, (255, 255, 555), 1)
 
     return image

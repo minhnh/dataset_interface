@@ -5,7 +5,7 @@ from dataset_interface.utils import TerminalColors, prompt_for_float, prompt_for
 from dataset_interface.augmentation.image_augmentation import ImageAugmenter
 
 
-def generate_masks_and_annotations(data_dir, class_annotation_file, output_dir, output_annotation_dir):
+def generate_masks_and_annotations(data_dir, class_annotation_file, output_dir, output_annotation_dir, display_boxes):
     augmenter = ImageAugmenter(data_dir, class_annotation_file)
     if not output_dir:
         output_dir = os.path.join(data_dir, 'synthetic_images')
@@ -37,8 +37,8 @@ def generate_masks_and_annotations(data_dir, class_annotation_file, output_dir, 
                                                   " onto each background"))
 
         # generate images
-        augmenter.generate_detection_data(split_name, output_dir, output_annotation_dir,
-                                          num_image_per_bg, max_obj_num_per_bg)
+        augmenter.generate_detection_data(split_name, output_dir, output_annotation_dir, num_image_per_bg,
+                                          max_obj_num_per_bg, display_boxes=display_boxes)
 
         if not prompt_for_yes_or_no("do you want to generate images for another dataset split?"):
             break
@@ -58,13 +58,16 @@ if __name__ == '__main__':
                         help='(optional) directory to store generated images')
     parser.add_argument('--output-annotation-dir', '-a', default=None,
                         help='(optional) directory to store the generated YAML annotations')
+    parser.add_argument('--display-boxes', '-b', action='store_true',
+                        help='(optional) whether to display the synthetic images with visualized bounding boxes')
     args = parser.parse_args()
 
     try:
         generate_masks_and_annotations(args.data_directory, args.class_annotations, args.output_dir,
-                                       args.output_annotation_dir)
+                                       args.output_annotation_dir, args.display_boxes)
         TerminalColors.formatted_print('image and annotation generation complete', TerminalColors.OKGREEN)
     except KeyboardInterrupt:
         TerminalColors.formatted_print('\nscript interrupted', TerminalColors.WARNING)
     except Exception as e:
         TerminalColors.formatted_print(e, TerminalColors.FAIL)
+        raise
