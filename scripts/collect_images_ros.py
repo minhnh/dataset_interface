@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import argparse
 import cv2
 import os
@@ -29,6 +29,7 @@ def find_largest_img_num(cls_image_dir, class_name):
 
 def collect_images_single_class(bridge_obj, topic_name, cls_image_dir, class_name, num_image, sleep_time, timeout=5.):
     img_idx = find_largest_img_num(cls_image_dir, class_name) + 1
+
     for _ in range(num_image):
         # get one image from specified and convert to OpenCV image
         try:
@@ -108,6 +109,7 @@ if __name__ == '__main__':
             'This script is meant to work with ROS, please run it from a ROS enabled system.', TerminalColors.FAIL)
         sys.exit(1)
 
+    rospy.init_node('image_collector', anonymous=True)
     try:
         collect_images(args.topic_name, args.image_dir, args.class_file, args.sleep_time)
         TerminalColors.formatted_print('image collection complete', TerminalColors.OKGREEN)

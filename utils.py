@@ -109,7 +109,8 @@ def split_path(file_path):
     """return (directory, file_name, extension) from a string file path"""
     file_dir = os.path.dirname(file_path)
     file_basename = os.path.basename(file_path)
-    return (file_dir, *os.path.splitext(file_basename))
+    file_name, extension = os.path.splitext(file_basename)
+    return file_dir, file_name, extension
 
 
 def display_image_and_wait(cv_image, window_name, escape_key=27):

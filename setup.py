@@ -23,7 +23,9 @@ setup(
     install_requires=[
         'setuptools>=18.0',
         'cython>=0.27.3',
-        'matplotlib>=2.1.0'
+        'pyyaml>=5.1.0',
+        'future',
+        'six'
     ],
     version='1.0',
     ext_modules=ext_modules

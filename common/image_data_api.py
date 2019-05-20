@@ -1,6 +1,7 @@
 import os
 import yaml
-from abc import ABC, abstractmethod
+import abc
+import six
 
 
 class ImageInfo(object):
@@ -109,7 +110,8 @@ class Category(object):
         raise NotImplementedError()
 
 
-class ImageDetectionDataAPI(ABC):
+@six.add_metaclass(abc.ABCMeta)
+class ImageDetectionDataAPI(object):
     # directory containing dataset info, i.e annotations, category descriptions,...
     _data_dir = None            # type: str
     # directory containing images
@@ -169,7 +171,7 @@ class ImageDetectionDataAPI(ABC):
         """
         return self._category_names
 
-    @abstractmethod
+    @abc.abstractmethod
     def _initialize(self):
         """
         Contains specific initializations for the extension class, i.e. pointing to correct subdirectories
@@ -178,7 +180,7 @@ class ImageDetectionDataAPI(ABC):
         """
         raise NotImplementedError("abstract method '_initialize' not implemented")
 
-    @abstractmethod
+    @abc.abstractmethod
     def _parse_categories(self):
         """
         Handles indexing the category hierarchy, '_category_hierarchy' should be filled here
@@ -187,7 +189,7 @@ class ImageDetectionDataAPI(ABC):
         """
         raise NotImplementedError("abstract method '_parse_categories' not implemented")
 
-    @abstractmethod
+    @abc.abstractmethod
     def _parse_image_info(self):
         """
         Handles indexing image metadata, '_image_info_dict' should be filled here
@@ -196,7 +198,7 @@ class ImageDetectionDataAPI(ABC):
         """
         raise NotImplementedError("abstract method '_parse_image_info' not implemented")
 
-    @abstractmethod
+    @abc.abstractmethod
     def get_images_in_category(self, category_id):
         """
         Gets all images which contain a certain category. Category can be of any level.
@@ -225,7 +227,7 @@ class ImageDetectionDataAPI(ABC):
 
         return image_dict
 
-    @abstractmethod
+    @abc.abstractmethod
     def get_bounding_boxes_by_ids(self, image_id, category_ids):
         """
         Get all bounding boxes for the specified category ID's in a given image, should work for all levels.
