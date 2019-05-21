@@ -4,7 +4,8 @@ import glob
 import os
 import numpy as np
 import cv2
-from dataset_interface.common import BoundingBox
+from xml.etree import ElementTree
+from dataset_interface.common import BoundingBox, NormalizedBox
 
 
 ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png']
@@ -167,3 +168,49 @@ def draw_labeled_boxes(image, box_annotations, class_dict, font_scale=1, thickne
         cv2.putText(image, cls_name, (x_min, y_min), cv2.FONT_HERSHEY_PLAIN, font_scale, (255, 255, 555), 1)
 
     return image
+
+
+def get_bounding_boxes_from_labelimg_xml(xml_path, class_dict):
+    """
+    Parse bounding box and image annotations from the XML files generated using the open source annotation tool
+    https://github.com/tzutalin/labelImg
+
+    @param xml_path: path to the XML annotation file
+    @class_dict: dictionary that map from class_id to class_name as often used in the rest of the package
+    @return: path to the image and a list of NormalizedBox containing bounding box annotations
+    """
+    def get_xml_child_or_raise(xml_elem, child_name):
+        xml_child = xml_elem.find(child_name)
+        if xml_child is None:
+            raise ValueError("element '{}' does not have child '{}'".format(xml_elem.tag, child_name))
+        return xml_child
+
+    xml_root = ElementTree.parse(xml_path).getroot()
+
+    # get image path
+    img_path = get_xml_child_or_raise(xml_root, 'path').text
+
+    # get image dimensions
+    size_elem = get_xml_child_or_raise(xml_root, 'size')
+    img_width = get_xml_child_or_raise(size_elem, 'width').text
+    img_height = get_xml_child_or_raise(size_elem, 'height').text
+    img_width, img_height = int(img_width), int(img_height)
+
+    # get boxes
+    boxes = []
+    class_dict_rev = dict((v, k) for k, v in class_dict.items())
+    for obj_elem in xml_root.findall('object'):
+        cls_name = get_xml_child_or_raise(obj_elem, 'name').text
+        if cls_name not in class_dict_rev:
+            TerminalColors.formatted_print('unrecognized class: ' + cls_name, TerminalColors.WARNING)
+            continue
+        cls_id = class_dict_rev[cls_name]
+
+        box_elem = get_xml_child_or_raise(obj_elem, 'bndbox')
+        x_min = int(get_xml_child_or_raise(box_elem, 'xmin').text)
+        x_max = int(get_xml_child_or_raise(box_elem, 'xmax').text)
+        y_min = int(get_xml_child_or_raise(box_elem, 'ymin').text)
+        y_max = int(get_xml_child_or_raise(box_elem, 'ymax').text)
+        boxes.append(NormalizedBox((img_height, img_width), x_min, y_min, x_max=x_max, y_max=y_max, class_id=cls_id))
+
+    return img_path, boxes
