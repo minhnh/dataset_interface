@@ -1,10 +1,8 @@
 # Image augmentation
 
-TODO(minhnh) add and link to Jupyter notebook example
-
 * [Background segmentation](#background-segmentation)
 * [Generating images and bounding box annotations from segmented masks](#generating-images-and-bounding-box-annotations-from-segmented-masks)
-* [Colect images from a ROS topic](#colect-images-from-a-ros-topic)
+* [Collect images from a ROS topic](#collect-images-from-a-ros-topic)
 
 ## Background segmentation
 
@@ -131,7 +129,7 @@ do you want to generate images for another dataset split? [(y)es/(n)o]: n
 image and annotation generation complete
 ```
 
-## Colect images from a ROS topic
+## Collect images from a ROS topic
 
 To directly collect images from the robot, a simple script that read `sensor_msgs/Image` messages from a
 [ROS](http://www.ros.org/) topic is also included. Usage:
