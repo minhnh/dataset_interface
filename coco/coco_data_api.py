@@ -1,6 +1,5 @@
 import os
-from dataset_interface.common import ImageDetectionDataAPI, Category, ImageInfo
-
+from dataset_interface.common import ImageDetectionDataAPI, Category, ImageInfo, BoundingBox
 try:
     from pycocotools.coco import COCO
 except ImportError:
@@ -110,8 +109,9 @@ class COCODataAPI(ImageDetectionDataAPI):
 
             for ann_index in ann_indices:
                 box = annotations[ann_index]['bbox']
-                boxes[cat_id].append({'min_x': round(box[0]), 'min_y': round(box[1]),
-                                      'width': round(box[2]), 'height': round(box[3])})
+                boxes[cat_id].append(BoundingBox(round(box[0]), round(box[1]),
+                                                 width=round(box[2]), height=round(box[3]),
+                                                 class_id=cat_id))
 
         return boxes
 

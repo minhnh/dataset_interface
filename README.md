@@ -1,30 +1,36 @@
 # `dataset_interface`
 
-A common interface for interacting with dataset, in context of the
-[b-it-bots teams](https://github.com/b-it-bots/).
+This repository includes:
 
-Note: tested only on Python 3.7.
+* A common interface for interacting with different datasets, in context of the
+  [b-it-bots RoboCup teams](https://github.com/b-it-bots/).
+* Tools/pipelines for automatically segmenting object masks using the green box (picture below), using these masks
+  to synthesize data for training object detection models, and training on the synthesized data
+
+Note: tested only with Python 3.
+
+* [Installation](#installation)
+* [Common interface for datasets](#common-interface-for-datasets)
+* [Image augmentation](#image-augmentation)
+* [Training](#training)
 
 ## Installation
-```
+
+Since the data API from `pycocotools` requires building Cython modules, `pip install -e .` and
+`python setup.py develop` does not seem to work. Arch users may have to install the
+[`tk` windowing toolkit](https://www.archlinux.org/packages/extra/x86_64/tk/) manually as a system dependency.
+
+```sh
 python setup.py install --user
 ```
 
-## Common interfaces
+## Common interface for datasets
 
-### [`image_data_api.py`](./common/image_data_api.py)
+A more detailed description of how this interface works can be found in the
+[dataset interface documentation](docs/dataset_interface.md)
 
-#### `ImageInfo`
-Meant to hold image metadata.
-
-#### `Category`
-Meant to handle hierarchies of images categories.
-
-#### `ImageDetectionDataAPI`
-Meant to handle common queries to dataset.
-
-#### Sample usage
 A sample config file for the COCO dataset: [`sample_coco_configs.yml`](./config/sample_coco_configs.yml)
+
 ```python
 from dataset_interface.coco import COCODataAPI
 
@@ -47,6 +53,18 @@ indoor_cat_names = coco_api.get_sub_category_names('indoor')
 
 ```
 
-## Handled datasets
+## Image augmentation
 
-* [COCO](http://cocodataset.org/): see specific [README](./coco/README.md) for more info
+We aim to ease the process of generating data for object detection. Using the green box in the picture below,
+it's possible to automatically segment objects and transform them onto new backgrounds to create new training
+data for an object detection model. A more detailed documentation of how we solve this problem can be found
+in [`docs/image_augmentation.md`](docs/image_augmentation.md).
+
+![Green Box](docs/green_box.png)
+
+## Training
+
+We primarily train detection models using the tools and model definitions from the
+[`tensorflow/models` repository](http://github.com/tensorflow/models). Documentation of how the tools in
+`tensorflow/models` are utilized for our specific use case can be found in
+[`docs/tensorflow_models.md`](docs/tensorflow_models.md)

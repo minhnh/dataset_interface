@@ -1,6 +1,7 @@
 import os
 import yaml
-from abc import ABC, abstractmethod
+import abc
+import six
 
 
 class ImageInfo(object):
@@ -109,7 +110,8 @@ class Category(object):
         raise NotImplementedError()
 
 
-class ImageDetectionDataAPI(ABC):
+@six.add_metaclass(abc.ABCMeta)
+class ImageDetectionDataAPI(object):
     # directory containing dataset info, i.e annotations, category descriptions,...
     _data_dir = None            # type: str
     # directory containing images
@@ -143,7 +145,7 @@ class ImageDetectionDataAPI(ABC):
             if not os.path.exists(config_file_path):
                 raise IOError('config file does not exist: {}'.format(config_file_path))
             with open(config_file_path) as config_file:
-                self._configurations = yaml.load(config_file)
+                self._configurations = yaml.load(config_file, Loader=yaml.FullLoader)
         else:
             self._configurations = {}
 
@@ -159,13 +161,17 @@ class ImageDetectionDataAPI(ABC):
         return self._category_hierarchy
 
     @property
+    def categories(self):
+        return self._categories
+
+    @property
     def category_names(self):
         """
         :return: dictionary mapping category names to ID's
         """
         return self._category_names
 
-    @abstractmethod
+    @abc.abstractmethod
     def _initialize(self):
         """
         Contains specific initializations for the extension class, i.e. pointing to correct subdirectories
@@ -174,7 +180,7 @@ class ImageDetectionDataAPI(ABC):
         """
         raise NotImplementedError("abstract method '_initialize' not implemented")
 
-    @abstractmethod
+    @abc.abstractmethod
     def _parse_categories(self):
         """
         Handles indexing the category hierarchy, '_category_hierarchy' should be filled here
@@ -183,7 +189,7 @@ class ImageDetectionDataAPI(ABC):
         """
         raise NotImplementedError("abstract method '_parse_categories' not implemented")
 
-    @abstractmethod
+    @abc.abstractmethod
     def _parse_image_info(self):
         """
         Handles indexing image metadata, '_image_info_dict' should be filled here
@@ -192,7 +198,7 @@ class ImageDetectionDataAPI(ABC):
         """
         raise NotImplementedError("abstract method '_parse_image_info' not implemented")
 
-    @abstractmethod
+    @abc.abstractmethod
     def get_images_in_category(self, category_id):
         """
         Gets all images which contain a certain category. Category can be of any level.
@@ -202,7 +208,26 @@ class ImageDetectionDataAPI(ABC):
         """
         raise NotImplementedError("abstract method 'get_images_in_category' not implemented")
 
-    @abstractmethod
+    def get_images_and_boxes_in_categories(self, category_ids):
+        """
+        get all ImageInfo objects of images that have the given categories, with their relevant
+        bounding box annotations
+        @param category_ids: list of unique category ID's
+        @return: dictionary containing mapping
+                 { <image_id>: { 'info': ImageInfo, 'bounding_boxes': { category_id: [ BoundingBox ] } } }
+        """
+        image_dict = {}
+        for category_id in category_ids:
+            for image_id, image_inf in self.get_images_in_category(category_id).items():
+                if image_id in image_dict:
+                    # skip if current image is already added
+                    continue
+                boxes = self.get_bounding_boxes_by_ids(image_id, category_ids)
+                image_dict[image_id] = {'info': image_inf, 'bounding_boxes': boxes}
+
+        return image_dict
+
+    @abc.abstractmethod
     def get_bounding_boxes_by_ids(self, image_id, category_ids):
         """
         Get all bounding boxes for the specified category ID's in a given image, should work for all levels.
@@ -210,8 +235,7 @@ class ImageDetectionDataAPI(ABC):
 
         :type image_id: str
         :type category_ids: list
-        :return: dictionary of boxes,
-                 maps { category_id: [ { min_x: int, min_y: int, width: int, height: int } ]}
+        :return: dictionary of boxes, maps { category_id: [ BoundingBox ]}
         :rtype: dict
         """
         raise NotImplementedError("abstract method 'get_bounding_boxes' not implemented")
