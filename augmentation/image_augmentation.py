@@ -3,6 +3,7 @@ import yaml
 import numpy as np
 import cv2
 from skimage.transform import SimilarityTransform, matrix_transform
+from skimage.util import random_noise
 from dataset_interface.common import SegmentedBox
 from dataset_interface.utils import TerminalColors, glob_extensions_in_directory, ALLOWED_IMAGE_EXTENSIONS, \
                                     display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask, \
@@ -43,10 +44,11 @@ def apply_random_transformation(background_size, segmented_box, margin=0.1, max_
     return transformed_coords_norm
 
 
-def apply_image_filters(bgr_image, prob_rand_bright=1.0, bright_shift_range=(-5, 5)):
+def apply_image_filters(bgr_image, prob_rand_color=0.5, prob_rand_noise=0.5,
+                        prob_rand_bright=0.5, bright_shift_range=(-5, 5)):
     """
     apply image filters to image
-    TODO(minhnh) add color and contrast shifts
+    TODO(minhnh) add contrast shifts
     """
     if np.random.uniform() < prob_rand_bright:
         # randomly change brightness at a certain probability
@@ -58,6 +60,23 @@ def apply_image_filters(bgr_image, prob_rand_bright=1.0, bright_shift_range=(-5,
         np.add(v[v <= lim], rand_bright_ship, out=v[v <= lim], casting="unsafe")
         final_hsv = cv2.merge((h, s, v))
         bgr_image = cv2.cvtColor(final_hsv, cv2.COLOR_HSV2BGR)
+
+    # randomly select from the allowed color maps below to apply to the image
+    # see more at: https://docs.opencv.org/master/d3/d50/group__imgproc__colormap.html
+    ALLOWED_COLOR_MAPS = [cv2.COLORMAP_AUTUMN, cv2.COLORMAP_BONE, cv2.COLORMAP_HOT, cv2.COLORMAP_OCEAN,
+                          cv2.COLORMAP_PARULA, cv2.COLORMAP_PINK, cv2.COLORMAP_SUMMER, cv2.COLORMAP_WINTER]
+    if np.random.uniform() < prob_rand_color:
+        bgr_image = cv2.applyColorMap(bgr_image, np.random.choice(ALLOWED_COLOR_MAPS))
+
+    # randomly add gaussian noise, since random_noise normalize the image, we need to convert it back to pixel value
+    if np.random.uniform() < prob_rand_noise:
+        noise_img = random_noise(bgr_image, mode='gaussian')
+        bgr_image = (255 * noise_img).astype(np.uint8)
+
+    # randomly add salt & pepper noise, convert it back to pixel value
+    if np.random.uniform() < prob_rand_noise:
+        noise_img = random_noise(bgr_image, mode='s&p')
+        bgr_image = (255 * noise_img).astype(np.uint8)
 
     return bgr_image
 
@@ -151,7 +170,7 @@ class SegmentedObjectCollection(object):
                                         rand_segmentation.segmented_x_coords]
         kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
         projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
-        projected_bgr = apply_image_filters(projected_bgr)
+        projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.3)
 
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
@@ -234,6 +253,7 @@ class ImageAugmenter(object):
         sampled_collections = self._sample_classes(max_obj_num_per_bg)
         annotations = []
         bg_img_copy = background_image.copy()
+        bg_img_copy = apply_image_filters(bg_img_copy)
         for obj_collection in sampled_collections:
             bg_img_copy, box = obj_collection.project_segmentation_on_background(bg_img_copy)
             generated_ann = box.to_dict()
