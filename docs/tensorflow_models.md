@@ -70,6 +70,27 @@ binary files and can be broken into smaller chunks (i.e. shards) for easier mana
 [this tutorial](https://www.tensorflow.org/tutorials/load_data/tf_records) for more details).
 
 The script [`create_robocup_tf_record.py`](../scripts/create_robocup_tf_record.py) handles the TFRecord generation.
+The `annotation_file` argument expects a YAML file containing bounding box annotations for each image. This file should
+have the same format that is generated using the [`generate_detection_data.py`](../scripts/generate_detection_data.py)
+script. An example of the file is as follow:
+
+```yaml
+- image_name: /path/to/image.jpg
+  objects:
+  - class_id: 14
+    xmax: 674
+    xmin: 389
+    ymax: 674
+    ymin: 452
+  - class_id: 6
+    xmax: 434
+    xmin: 280
+    ymax: 512
+    ymin: 266
+...
+```
+
+Script arguments:
 
 ```sh
 $ python3 scripts/create_robocup_tf_record.py -h
