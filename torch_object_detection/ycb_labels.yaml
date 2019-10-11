@@ -1,0 +1,5 @@
+category_names: ['__background__', 'can', 'sponge']
+label_map:
+    '__background__': 0
+    'can': 1
+    'sponge': 2
