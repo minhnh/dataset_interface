@@ -12,10 +12,14 @@ from dataset_interface.utils import TerminalColors, prompt_for_yes_or_no, prompt
                                     display_image_and_wait, cleanup_mask
 
 
-def get_image_mask_path(image_path, mask_dir):
+def get_image_mask_path(image_path, mask_paths):
     """enforces name convention for generated object masks"""
-    _, filename, extension = split_path(image_path)
-    return os.path.join(mask_dir, filename + '_mask' + extension)
+    _, filename, _ = split_path(image_path)
+    mask_path = [path for path in mask_paths if filename+'_mask' in path]
+    if mask_path:
+        return mask_path[0]
+    else:
+        raise ValueError('[get_image_mask_path] {0} does not have a corresponding mask'.format(image_path))
 
 
 class SegmentationMethods(Enum):
