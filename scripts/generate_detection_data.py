@@ -5,8 +5,10 @@ from dataset_interface.utils import TerminalColors, prompt_for_float, prompt_for
 from dataset_interface.augmentation.image_augmentation import ImageAugmenter
 
 
-def generate_masks_and_annotations(data_dir, class_annotation_file, output_dir, output_annotation_dir, display_boxes):
-    augmenter = ImageAugmenter(data_dir, class_annotation_file)
+def generate_masks_and_annotations(data_dir, background_dir, class_annotation_file,
+                                   num_objects_per_class, output_dir, output_annotation_dir,
+                                   display_boxes):
+    augmenter = ImageAugmenter(data_dir, background_dir, class_annotation_file, num_objects_per_class)
     if not output_dir:
         output_dir = os.path.join(data_dir, 'synthetic_images')
     if not output_annotation_dir:
@@ -27,18 +29,15 @@ def generate_masks_and_annotations(data_dir, class_annotation_file, output_dir, 
         while not split_name:
             split_name = input("please enter split name (e.g. 'go2019_train'): ")
 
-        num_image_per_bg = -1
-        while num_image_per_bg < 0:
-            num_image_per_bg = int(prompt_for_float("please enter the number of images to be generated"
-                                                    " for each background"))
+        # num_image_per_bg = -1
+        # while num_image_per_bg < 0:
+        #     num_image_per_bg = int(prompt_for_float("please enter the number of images to be generated"
+        #                                             " for each background"))
 
-        max_obj_num_per_bg = -1
-        max_obj_num_per_bg = int(prompt_for_float("please enter the maximum number of objects to be projected"
-                                                  " onto each background"))
-
+        max_obj_num_per_bg = int(prompt_for_float("enter the maximum number of objects per background"))
         # generate images
-        augmenter.generate_detection_data(split_name, output_dir, output_annotation_dir, num_image_per_bg,
-                                          max_obj_num_per_bg, display_boxes=display_boxes)
+        augmenter.generate_detection_data(split_name, output_dir, output_annotation_dir, max_obj_num_per_bg, 
+            display_boxes=display_boxes)
 
         if not prompt_for_yes_or_no("do you want to generate images for another dataset split?"):
             break
@@ -51,9 +50,13 @@ if __name__ == '__main__':
                     " This is done by randomly projecting segemented object pixels onto backgrounds, then"
                     " calculating the corresponding bounding boxes.")
     parser.add_argument('--data-directory', '-d', required=True,
-                        help='directory where the script will look for images, backgrounds and saved object masks')
+                        help='directory where the script will look for images and object masks')
+    parser.add_argument('--background-directory', '-bg', required=True,
+                        help='directory where the script will look for backgrounds images')
     parser.add_argument('--class-annotations', '-c', required=True,
                         help='file containing mappings from class ID to class name')
+    parser.add_argument('--num-objects-per-class', '-n', required=True, type=int,
+                        help='number of object per class')
     parser.add_argument('--output-dir', '-o', default=None,
                         help='(optional) directory to store generated images')
     parser.add_argument('--output-annotation-dir', '-a', default=None,
@@ -63,7 +66,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     try:
-        generate_masks_and_annotations(args.data_directory, args.class_annotations, args.output_dir,
+        generate_masks_and_annotations(args.data_directory, args.background_directory, args.class_annotations,
+                                       args.num_objects_per_class, args.output_dir,
                                        args.output_annotation_dir, args.display_boxes)
         TerminalColors.formatted_print('image and annotation generation complete', TerminalColors.OKGREEN)
     except KeyboardInterrupt:
