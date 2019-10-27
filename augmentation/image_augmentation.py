@@ -7,7 +7,7 @@ from skimage.util import random_noise
 from dataset_interface.common import SegmentedBox
 from dataset_interface.utils import TerminalColors, glob_extensions_in_directory, ALLOWED_IMAGE_EXTENSIONS, \
                                     display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask, \
-                                    draw_labeled_boxes
+                                    draw_labeled_boxes, split_path
 from dataset_interface.augmentation.background_segmentation import get_image_mask_path
 
 
@@ -86,15 +86,16 @@ class SegmentedObject(object):
     max_dimension = None
     bgr_image = None
     mask_image = None
+    class_id = None
     segmented_box = None
     segmented_x_coords = None
     segmented_y_coords = None
 
-    def __init__(self, image_path, mask_path):
+    def __init__(self, image_path, mask_path, class_id):
         # read color and mask images
         self.bgr_image = cv2.imread(image_path)
         self.mask_image = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-
+        self.class_id = class_id
         self.segmented_y_coords, self.segmented_x_coords = np.where(self.mask_image)
 
         # calculate maximum pixel dimension from the segmented coordinates
@@ -105,51 +106,69 @@ class SegmentedObject(object):
         display_image_and_wait(segmented_bgr, 'segmented_object')
 
 
-class SegmentedObjectCollection(object):
-    """Collection of instances of 'SegmentedObject''s, one for each image-mask pair"""
-    class_id = None
-    _segmented_objects = None
 
-    def __init__(self, class_id, obj_img_dir, obj_mask_dir):
-        self.class_id = class_id
 
-        # check directories
-        if not os.path.isdir(obj_img_dir):
-            raise RuntimeError("image folder '{}' is not an existing directory".format(obj_img_dir))
-        if not os.path.isdir(obj_mask_dir):
-            raise RuntimeError("mask folder '{}' is not an existing directory".format(obj_mask_dir))
+class ImageAugmenter(object):
+    _class_dict = None
+    _background_paths = None
+    _images_paths = None
+    _masks_paths = None
+    _object_collections = dict()
+    _num_objects_per_class = None
 
-        # glob object images
-        obj_img_paths = glob_extensions_in_directory(obj_img_dir, ALLOWED_IMAGE_EXTENSIONS)
-        if not obj_img_paths:
-            raise RuntimeError("found no image of supported types in '{}'".format(obj_img_dir))
+    def __init__(self, data_dir, background_dir, class_annotation_file, num_objects_per_class):
+        # check required directories
+        TerminalColors.formatted_print('Data directory: ' + data_dir, TerminalColors.OKBLUE)
+        if not os.path.isdir(data_dir):
+            raise RuntimeError("'{}' is not an existing directory".format(data_dir))
 
-        # load images and masks
-        print("found '{}' object images in '{}'".format(len(obj_img_paths), obj_img_dir))
-        self._segmented_objects = []
-        for img_path in obj_img_paths:
-            # check expected path to mask
-            mask_path = get_image_mask_path(img_path, obj_mask_dir)
-            if not os.path.exists(mask_path):
-                TerminalColors.formatted_print("skipping image '{}': mask '{}' does not exist"
-                                               .format(img_path, mask_path), TerminalColors.WARNING)
-                continue
+        TerminalColors.formatted_print('Background directory: ' + background_dir, TerminalColors.OKBLUE)
+        if not os.path.isdir(background_dir):
+            raise RuntimeError("'{}' is not an existing directory".format(background_dir))
 
-            # add SegmentedObject instance for image-mask pair
+        # load backgrounds for image augmentation
+        self._background_paths = glob_extensions_in_directory(background_dir, ALLOWED_IMAGE_EXTENSIONS)
+        TerminalColors.formatted_print('Found {} background images '.format(len(self._background_paths)),
+                                        TerminalColors.OKBLUE)
+        # self._augment_backgrounds = []
+        # for bg_path in background_paths:
+        #     bg_img = cv2.imread(bg_path)
+        #     self._augment_backgrounds.append(bg_img)
+
+        # Saving number of objects per class
+        self._num_objects_per_class = num_objects_per_class
+
+        # load class annotation file
+        TerminalColors.formatted_print('Class annotation file: {}'.format(class_annotation_file),
+                                       TerminalColors.OKBLUE)
+        if not os.path.exists(class_annotation_file):
+            raise RuntimeError('class annotation file does not exist: ' + class_annotation_file)
+        with open(class_annotation_file, 'r') as infile:
+            self._class_dict = yaml.load(infile, Loader=yaml.FullLoader)
+
+        # load segmented objects
+        TerminalColors.formatted_print("Loading object masks for '{}' classes".format(len(self._class_dict)),
+                                       TerminalColors.OKBLUE)
+        
+        for cls_id, cls_name in self._class_dict.items():
+            obj_dir = os.path.join(data_dir, cls_name)
+            obj_img_dir = os.path.join(obj_dir, 'images')
+            obj_mask_dir = os.path.join(obj_dir, 'masks')
+
             try:
-                self._segmented_objects.append(SegmentedObject(img_path, mask_path))
-            except Exception as e:
-                TerminalColors.formatted_print("failed to process image '{}' and mask '{}': {}"
-                                               .format(img_path, mask_path, e), TerminalColors.FAIL)
+                TerminalColors.formatted_print("loading images and masks for class '{}'".format(cls_name),
+                                               TerminalColors.BOLD)
+                # segmented_obj = SegmentedObjectCollection(cls_id, obj_img_dir, obj_mask_dir)
+                # self._segmented_object_collections[cls_id] = segmented_obj
+                self._load_objects_per_class(cls_id, obj_img_dir, obj_mask_dir)
+            except RuntimeError as e:
+                TerminalColors.formatted_print("skipping class '{}': {}".format(cls_name, e), TerminalColors.WARNING)
                 continue
 
-    def project_segmentation_on_background(self, background_image):
-        # choose random segmentation from collection
-        rand_segmentation = np.random.choice(self._segmented_objects)
-
+    def project_segmentation_on_background(self, background_image, segmented_obj_data):
         # create a random transformation
         bg_height, bg_width = background_image.shape[:2]
-        transformed_coords_norm = apply_random_transformation((bg_height, bg_width), rand_segmentation.segmented_box)
+        transformed_coords_norm = apply_random_transformation((bg_height, bg_width), segmented_obj_data.segmented_box)
 
         # denormalize transformed coordinates, preserving aspect ratio, but making sure the object is within
         # background image
@@ -166,8 +185,8 @@ class SegmentedObjectCollection(object):
         # denoise projected RGB values
         projected_bgr = np.zeros((bg_height, bg_width, 3), dtype=np.uint8)
         projected_bgr[transformed_coords[:, 1], transformed_coords[:, 0], :] = \
-            rand_segmentation.bgr_image[rand_segmentation.segmented_y_coords,
-                                        rand_segmentation.segmented_x_coords]
+            segmented_obj_data.bgr_image[segmented_obj_data.segmented_y_coords,
+                                        segmented_obj_data.segmented_x_coords]
         kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
         projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
         projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.3)
@@ -175,93 +194,94 @@ class SegmentedObjectCollection(object):
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
         background_image[cleaned_y_coords, clean_x_coords] = projected_bgr[cleaned_y_coords, clean_x_coords]
-        new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width), class_id=self.class_id)
+        new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width), class_id=segmented_obj_data.class_id)
         return background_image, new_box
 
 
-class ImageAugmenter(object):
-    class_dict = None
-    _data_dir = None
-    _greenbox_image_dir = None
-    _mask_dir = None
-    _augment_backgrounds = None
-    _segmented_object_collections = None
+    def _load_objects_per_class(self, class_id, obj_img_dir, obj_mask_dir):
+        # check directories
+        if not os.path.isdir(obj_img_dir):
+            raise RuntimeError("image folder '{}' is not an existing directory".format(obj_img_dir))
+        if not os.path.isdir(obj_mask_dir):
+            raise RuntimeError("mask folder '{}' is not an existing directory".format(obj_mask_dir))
 
-    def __init__(self, data_dir, class_annotation_file):
-        # check required directories
-        self._data_dir = data_dir
-        TerminalColors.formatted_print('Data directory: ' + self._data_dir, TerminalColors.OKBLUE)
-        if not os.path.isdir(self._data_dir):
-            raise RuntimeError("'{}' is not an existing directory".format(self._data_dir))
+        # glob object images
+        obj_img_paths = glob_extensions_in_directory(obj_img_dir, ALLOWED_IMAGE_EXTENSIONS)
+        if not obj_img_paths:
+            raise RuntimeError("found no image of supported types in '{}'".format(obj_img_dir))
 
-        self._greenbox_image_dir = os.path.join(self._data_dir, 'green_box_images')
-        print('will look for object green box images in: ' + self._greenbox_image_dir)
-        if not os.path.isdir(self._greenbox_image_dir):
-            raise RuntimeError("'{}' is not an existing directory".format(self._greenbox_image_dir))
+        # glob mask images
+        obj_mask_paths = glob_extensions_in_directory(obj_mask_dir, ALLOWED_IMAGE_EXTENSIONS)
+        if not obj_img_paths:
+            raise RuntimeError("found no mask of supported types in '{}'".format(obj_img_dir))
 
-        self._mask_dir = os.path.join(self._data_dir, 'object_masks')
-        print('will look for object masks in: ' + self._mask_dir)
-        if not os.path.isdir(self._mask_dir):
-            raise RuntimeError("'{}' is not an existing directory".format(self._mask_dir))
+        # load images and masks
+        print("found '{}' object images in '{}'".format(len(obj_img_paths), obj_img_dir))
+        print("found '{}' object masks in '{}'".format(len(obj_mask_paths), obj_mask_dir))
 
-        augment_bg_dir = os.path.join(self._data_dir, 'augmentation_backgrounds')
-        print('will look for backgrounds for image augmentation in: ' + augment_bg_dir)
-        if not os.path.isdir(augment_bg_dir):
-            raise RuntimeError("'{}' is not an existing directory".format(augment_bg_dir))
+        img_indices = list(range(len(obj_img_paths)))
+        np.random.shuffle(img_indices)
 
-        # load backgrounds for image augmentation
-        background_paths = glob_extensions_in_directory(augment_bg_dir, ALLOWED_IMAGE_EXTENSIONS)
-        print("found '{}' background images".format(len(background_paths)))
-        self._augment_backgrounds = []
-        for bg_path in background_paths:
-            bg_img = cv2.imread(bg_path)
-            self._augment_backgrounds.append(bg_img)
-
-        # load class annotation file
-        TerminalColors.formatted_print('Class annotation file: {}'.format(class_annotation_file),
-                                       TerminalColors.OKBLUE)
-        if not os.path.exists(class_annotation_file):
-            raise RuntimeError('class annotation file does not exist: ' + class_annotation_file)
-        with open(class_annotation_file, 'r') as infile:
-            self.class_dict = yaml.load(infile, Loader=yaml.FullLoader)
-
-        # load segmented objects
-        TerminalColors.formatted_print("Loading object masks for '{}' classes".format(len(self.class_dict)),
-                                       TerminalColors.OKBLUE)
-        self._segmented_object_collections = {}
-        for cls_id, cls_name in self.class_dict.items():
-            obj_img_dir = os.path.join(self._greenbox_image_dir, cls_name)
-            obj_mask_dir = os.path.join(self._mask_dir, cls_name)
-
+        img_count = 0
+        current_img_idx = 0
+        img_paths = []
+        mask_paths = []
+        while img_count < self._num_objects_per_class and current_img_idx < len(img_indices):
             try:
-                TerminalColors.formatted_print("loading images and masks for class '{}'".format(cls_name),
-                                               TerminalColors.BOLD)
-                segmented_obj = SegmentedObjectCollection(cls_id, obj_img_dir, obj_mask_dir)
-                self._segmented_object_collections[cls_id] = segmented_obj
-            except RuntimeError as e:
-                TerminalColors.formatted_print("skipping class '{}': {}".format(cls_name, e), TerminalColors.WARNING)
-                continue
+                # we check if the current image has a corresponding mask
+                img_path = obj_img_paths[img_indices[current_img_idx]]
+                mask_path = get_image_mask_path(img_path, obj_mask_paths)
+
+                # even if both the image and mask exist, we still need to load them
+                # in order to check that they are valid images
+                cv2.imread(img_path)
+                cv2.imread(mask_path)
+
+                img_paths.append(img_path)
+                mask_paths.append(mask_path)
+                img_count += 1
+            except Exception as exc:
+                TerminalColors.formatted_print("[load_objects_per_class] Error: {0}. Skipping image".format(exc), TerminalColors.WARNING)
+            current_img_idx += 1
+
+        print("{} images saved per class {}".format(len(img_paths), class_id))
+        self._object_collections[class_id] = {'images': img_paths, 'masks' : mask_paths}
 
     def _sample_classes(self, max_obj_num_per_bg):
-        # TODO(minhnh) ensure balance sampling
-        num_obj = np.random.randint(1, max_obj_num_per_bg + 1)
-        sampled_class_ids = np.random.choice(list(self._segmented_object_collections.keys()), num_obj)
-        return [self._segmented_object_collections[cls_id] for cls_id in sampled_class_ids]
+        sample_count = 0
+        sampled_objects = []
+        while self._object_collections and sample_count < max_obj_num_per_bg:
+            # we sample an object class and then an image from that class
+            sampled_class_id = np.random.choice(list(self._object_collections.keys()))
+            sampled_object_id = np.random.choice(list(range(len(self._object_collections[sampled_class_id]['images']))))
+
+            # we remove the image and mask paths from the image path dictionary
+            image_path = self._object_collections[sampled_class_id]['images'].pop(sampled_object_id)
+            mask_path = self._object_collections[sampled_class_id]['masks'].pop(sampled_object_id)
+
+            # if there are no more images from the sampled class, we remove the
+            # class entry from the image path dictionary
+            if not self._object_collections[sampled_class_id]['images']:
+                del self._object_collections[sampled_class_id]
+
+            sampled_objects.append(SegmentedObject(image_path, mask_path, sampled_class_id))
+            sample_count += 1
+        return sampled_objects
 
     def generate_single_image(self, background_image, max_obj_num_per_bg):
         """generate a single image and its bounding box annotations"""
-        sampled_collections = self._sample_classes(max_obj_num_per_bg)
-        annotations = []
+        sampled_objects = self._sample_classes(max_obj_num_per_bg)
         bg_img_copy = background_image.copy()
         bg_img_copy = apply_image_filters(bg_img_copy)
-        for obj_collection in sampled_collections:
-            bg_img_copy, box = obj_collection.project_segmentation_on_background(bg_img_copy)
+        annotations = []
+        for obj in sampled_objects:
+            bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy, obj)
             generated_ann = box.to_dict()
             annotations.append(generated_ann)
         return bg_img_copy, annotations
 
-    def generate_detection_data(self, split_name, output_dir, output_annotation_dir, num_image_per_bg,
-                                max_obj_num_per_bg, display_boxes=False, write_chunk_ratio=0.05):
+    def generate_detection_data(self, split_name, output_dir, output_annotation_dir, max_obj_num_per_bg, 
+        display_boxes=False, write_chunk_ratio=0.05):
         """
         The main function which generate
         - generate synthetic images under <outpu_dir>/<split_name>
@@ -286,24 +306,36 @@ class ImageAugmenter(object):
             if not prompt_for_yes_or_no("file '{}' exists. Overwrite?".format(annotation_path)):
                 raise RuntimeError("not overwriting '{}'".format(annotation_path))
 
-        # store a reasonable value for the maximum number of objects projected onto each background
-        if max_obj_num_per_bg <= 0 or max_obj_num_per_bg > len(self.class_dict):
-            max_obj_num_per_bg = len(self.class_dict)
+        # # store a reasonable value for the maximum number of objects projected onto each background
+        # if max_obj_num_per_bg <= 0 or max_obj_num_per_bg > len(self.class_dict):
+        #     max_obj_num_per_bg = len(self.class_dict)
 
         # generate images and annotations
         img_cnt = 0
-        total_img_cnt = num_image_per_bg * len(self._augment_backgrounds)
+
+        # Total number of images = classes * objects per background * number of backgrounds
+        total_img_cnt = len(self._class_dict.keys()) * self._num_objects_per_class * len(self._background_paths)
         zero_pad_num = len(str(total_img_cnt))
         annotations = []
-        for bg_img in self._augment_backgrounds:
-            for _ in range(num_image_per_bg):
-                if print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
-                    # periodically dump annotations
-                    with open(annotation_path, 'a') as infile:
-                        yaml.dump(annotations, infile, default_flow_style=False)
-                        annotations = []
+        for bg_path in self._background_paths:
+            if print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
+                # periodically dump annotations
+                with open(annotation_path, 'a') as infile:
+                    yaml.dump(annotations, infile, default_flow_style=False)
+                    annotations = []
 
-                # generate new image
+            # generate new image
+            try:
+                bg_img = cv2.imread(bg_path)
+            except RuntimeError as e:
+                TerminalColors.formatted_print("Ignoring background {} because {}".format(bg_path, e), TerminalColors.WARNING)
+                continue
+
+            # we store the current object path dictionary since we will sample images without replacement
+            img_path_dictionary = dict(self._object_collections)
+
+            # we generate images with the current background until there are images to sample
+            while self._object_collections:
                 generated_image, box_annotations = self.generate_single_image(bg_img, max_obj_num_per_bg)
                 if display_boxes:
                     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
@@ -315,3 +347,6 @@ class ImageAugmenter(object):
                 annotations.append({'image_name': img_file_path, 'objects': box_annotations})
                 cv2.imwrite(img_file_path, generated_image)
                 img_cnt += 1
+
+            # we restore the object path dictionary after the image augmentation with the current background
+            self._object_collections = dict(img_path_dictionary)
