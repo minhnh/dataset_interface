@@ -1,3 +1,4 @@
+import copy
 import os
 import yaml
 import numpy as np
@@ -44,8 +45,8 @@ def apply_random_transformation(background_size, segmented_box, margin=0.1, max_
     return transformed_coords_norm
 
 
-def apply_image_filters(bgr_image, prob_rand_color=0.5, prob_rand_noise=0.5,
-                        prob_rand_bright=0.5, bright_shift_range=(-5, 5)):
+def apply_image_filters(bgr_image, prob_rand_color=0.2, prob_rand_noise=0.2,
+                        prob_rand_bright=0.2, bright_shift_range=(-5, 5)):
     """
     apply image filters to image
     TODO(minhnh) add contrast shifts
@@ -91,10 +92,12 @@ class SegmentedObject(object):
     segmented_x_coords = None
     segmented_y_coords = None
 
-    def __init__(self, image_path, mask_path, class_id):
+    def __init__(self, image_path, mask_path, class_id, invert_mask):
         # read color and mask images
         self.bgr_image = cv2.imread(image_path)
         self.mask_image = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if invert_mask:
+            self.mask_image = cv2.bitwise_not(self.mask_image)
         self.class_id = class_id
         self.segmented_y_coords, self.segmented_x_coords = np.where(self.mask_image)
 
@@ -145,12 +148,11 @@ class ImageAugmenter(object):
             raise RuntimeError('class annotation file does not exist: ' + class_annotation_file)
         with open(class_annotation_file, 'r') as infile:
             self._class_dict = yaml.load(infile, Loader=yaml.FullLoader)
-
         # load segmented objects
         TerminalColors.formatted_print("Loading object masks for '{}' classes".format(len(self._class_dict)),
                                        TerminalColors.OKBLUE)
         
-        for cls_id, cls_name in self._class_dict.items():
+        for cls_id, (cls_name, _) in self._class_dict.items():
             obj_dir = os.path.join(data_dir, cls_name)
             obj_img_dir = os.path.join(obj_dir, 'images')
             obj_mask_dir = os.path.join(obj_dir, 'masks')
@@ -165,7 +167,7 @@ class ImageAugmenter(object):
                 TerminalColors.formatted_print("skipping class '{}': {}".format(cls_name, e), TerminalColors.WARNING)
                 continue
 
-    def project_segmentation_on_background(self, background_image, segmented_obj_data):
+    def project_segmentation_on_background(self, background_image, segmented_obj_data, augmented_mask):
         # create a random transformation
         bg_height, bg_width = background_image.shape[:2]
         transformed_coords_norm = apply_random_transformation((bg_height, bg_width), segmented_obj_data.segmented_box)
@@ -189,11 +191,15 @@ class ImageAugmenter(object):
                                         segmented_obj_data.segmented_x_coords]
         kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
         projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
-        projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.3)
+        projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.2)
 
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
         background_image[cleaned_y_coords, clean_x_coords] = projected_bgr[cleaned_y_coords, clean_x_coords]
+
+        # Add object mask 
+        augmented_mask[cleaned_y_coords, clean_x_coords] = self._class_dict[segmented_obj_data.class_id][1][::-1]
+        # display_image_and_wait(augmented_mask, 'object onto the background') # NOTE: remove
         new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width), class_id=segmented_obj_data.class_id)
         return background_image, new_box
 
@@ -235,8 +241,6 @@ class ImageAugmenter(object):
                 # even if both the image and mask exist, we still need to load them
                 # in order to check that they are valid images
                 cv2.imread(img_path)
-                cv2.imread(mask_path)
-
                 img_paths.append(img_path)
                 mask_paths.append(mask_path)
                 img_count += 1
@@ -247,7 +251,7 @@ class ImageAugmenter(object):
         print("{} images saved per class {}".format(len(img_paths), class_id))
         self._object_collections[class_id] = {'images': img_paths, 'masks' : mask_paths}
 
-    def _sample_classes(self, max_obj_num_per_bg):
+    def _sample_classes(self, max_obj_num_per_bg, invert_mask=False):
         sample_count = 0
         sampled_objects = []
         while self._object_collections and sample_count < max_obj_num_per_bg:
@@ -258,45 +262,58 @@ class ImageAugmenter(object):
             # we remove the image and mask paths from the image path dictionary
             image_path = self._object_collections[sampled_class_id]['images'].pop(sampled_object_id)
             mask_path = self._object_collections[sampled_class_id]['masks'].pop(sampled_object_id)
-
             # if there are no more images from the sampled class, we remove the
             # class entry from the image path dictionary
             if not self._object_collections[sampled_class_id]['images']:
                 del self._object_collections[sampled_class_id]
 
-            sampled_objects.append(SegmentedObject(image_path, mask_path, sampled_class_id))
+            sampled_objects.append(SegmentedObject(image_path, mask_path, sampled_class_id, invert_mask))
             sample_count += 1
         return sampled_objects
 
-    def generate_single_image(self, background_image, max_obj_num_per_bg):
+    def generate_single_image(self, background_image, max_obj_num_per_bg, invert_mask=False):
         """generate a single image and its bounding box annotations"""
-        sampled_objects = self._sample_classes(max_obj_num_per_bg)
+        sampled_objects = self._sample_classes(max_obj_num_per_bg, invert_mask)
         bg_img_copy = background_image.copy()
         bg_img_copy = apply_image_filters(bg_img_copy)
+
+        augmented_mask = bg_img_copy.copy()
+        augmented_mask[:] = (255,255,255)
+        
         annotations = []
         for obj in sampled_objects:
-            bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy, obj)
+            bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy, obj,augmented_mask)
             generated_ann = box.to_dict()
             annotations.append(generated_ann)
-        return bg_img_copy, annotations
+        return bg_img_copy, annotations, augmented_mask
 
-    def generate_detection_data(self, split_name, output_dir, output_annotation_dir, max_obj_num_per_bg, 
-        display_boxes=False, write_chunk_ratio=0.05):
+    def generate_detection_data(self, split_name, output_dir_images, output_dir_masks, output_annotation_dir, max_obj_num_per_bg,
+        num_images_per_bg=10, display_boxes=False, write_chunk_ratio=0.05, invert_mask=False):
         """
         The main function which generate
         - generate synthetic images under <outpu_dir>/<split_name>
         - generate
         """
-        split_output_dir = os.path.join(output_dir, split_name)
+        split_output_dir_images = os.path.join(output_dir_images, split_name)
+        split_output_dir_masks = os.path.join(output_dir_masks, split_name)
         TerminalColors.formatted_print("generating images for split '{}' under '{}'"
-                                       .format(split_name, split_output_dir), TerminalColors.BOLD)
+                                       .format(split_name, split_output_dir_images), TerminalColors.BOLD)
+        TerminalColors.formatted_print("generating masks for split '{}' under '{}'"
+                                       .format(split_name, split_output_dir_masks), TerminalColors.BOLD)
         # check output image directory
-        if not os.path.isdir(split_output_dir):
-            print("creating directory: " + split_output_dir)
-            os.mkdir(split_output_dir)
-        elif os.listdir(split_output_dir):
-            if not prompt_for_yes_or_no("directory '{}' not empty. Overwrite?".format(split_output_dir)):
-                raise RuntimeError("not overwriting '{}'".format(split_output_dir))
+        if not os.path.isdir(split_output_dir_images):
+            print("creating directory: " + split_output_dir_images)
+            os.mkdir(split_output_dir_images)
+        elif os.listdir(split_output_dir_images):
+            if not prompt_for_yes_or_no("directory '{}' not empty. Overwrite?".format(split_output_dir_images)):
+                raise RuntimeError("not overwriting '{}'".format(split_output_dir_images))
+
+        if not os.path.isdir(split_output_dir_masks):
+            print("creating directory: " + split_output_dir_masks)
+            os.mkdir(split_output_dir_masks)
+        elif os.listdir(split_output_dir_masks):
+            if not prompt_for_yes_or_no("directory '{}' not empty. Overwrite?".format(split_output_dir_masks)):
+                raise RuntimeError("not overwriting '{}'".format(split_output_dir_masks))
 
         # check output annotation file
         annotation_path = os.path.join(output_annotation_dir, split_name + '.yml')
@@ -314,39 +331,44 @@ class ImageAugmenter(object):
         img_cnt = 0
 
         # Total number of images = classes * objects per background * number of backgrounds
-        total_img_cnt = len(self._class_dict.keys()) * self._num_objects_per_class * len(self._background_paths)
+        total_img_cnt = len(self._background_paths) * num_images_per_bg
         zero_pad_num = len(str(total_img_cnt))
         annotations = []
         for bg_path in self._background_paths:
-            if print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
-                # periodically dump annotations
-                with open(annotation_path, 'a') as infile:
-                    yaml.dump(annotations, infile, default_flow_style=False)
-                    annotations = []
-
             # generate new image
             try:
                 bg_img = cv2.imread(bg_path)
             except RuntimeError as e:
                 TerminalColors.formatted_print("Ignoring background {} because {}".format(bg_path, e), TerminalColors.WARNING)
                 continue
-
             # we store the current object path dictionary since we will sample images without replacement
-            img_path_dictionary = dict(self._object_collections)
+            img_path_dictionary = copy.deepcopy(self._object_collections)
 
-            # we generate images with the current background until there are images to sample
-            while self._object_collections:
-                generated_image, box_annotations = self.generate_single_image(bg_img, max_obj_num_per_bg)
+            for _ in range(num_images_per_bg):
+                generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
                 if display_boxes:
                     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
                     display_image_and_wait(drawn_img, 'box image')
 
                 # write image and annotations
                 img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
-                img_file_path = os.path.join(split_output_dir, img_file_name)
+                img_file_path = os.path.join(split_output_dir_images, img_file_name)
+                
+                mask_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
+                mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
+                
                 annotations.append({'image_name': img_file_path, 'objects': box_annotations})
                 cv2.imwrite(img_file_path, generated_image)
+                cv2.imwrite(mask_file_path, augmented_mask)
                 img_cnt += 1
 
-            # we restore the object path dictionary after the image augmentation with the current background
-            self._object_collections = dict(img_path_dictionary)
+                # Writing annotations
+                if print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
+                    # periodically dump annotations
+                    with open(annotation_path, 'a') as infile:
+                        yaml.dump(annotations, infile, default_flow_style=False)
+                        annotations = []
+
+                # we restore the object path dictionary after the image augmentation with the current background
+                if not self._object_collections:
+                    self._object_collections = copy.deepcopy(img_path_dictionary)
