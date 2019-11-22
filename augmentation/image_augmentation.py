@@ -356,8 +356,11 @@ class ImageAugmenter(object):
                 
                 mask_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
                 mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
-                
-                annotations.append({'image_name': img_file_path, 'objects': box_annotations})
+
+                # Cast box_annotations_class_id 
+                for box in box_annotations:
+                    box['class_id'] = int(box['class_id'])
+                annotations.append({'image_name': img_file_name, 'objects': box_annotations})
                 cv2.imwrite(img_file_path, generated_image)
                 cv2.imwrite(mask_file_path, augmented_mask)
                 img_cnt += 1
