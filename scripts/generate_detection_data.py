@@ -11,10 +11,16 @@ def generate_masks_and_annotations(data_dir, background_dir, class_annotation_fi
     augmenter = ImageAugmenter(data_dir, background_dir, class_annotation_file, num_objects_per_class)
     if not output_dir:
         output_dir = os.path.join(data_dir, 'synthetic_images')
-        output_dir_images = os.path.join(output_dir, 'images')
-        output_dir_masks = os.path.join(output_dir, 'masks')
+    else:
+        output_dir = os.path.join(output_dir,'synthetic_images')
+    output_dir_images = os.path.join(output_dir, 'images')
+    output_dir_masks = os.path.join(output_dir, 'masks')
+
     if not output_annotation_dir:
         output_annotation_dir = os.path.join(data_dir, 'annotations')
+    else:
+        output_annotation_dir = os.path.join(output_annotation_dir, 'annotations')
+
     TerminalColors.formatted_print("begin generating images under '{}' and annotation files under '{}'"
                                    .format(output_dir, output_annotation_dir), TerminalColors.OKBLUE)
     if not os.path.isdir(output_dir):
