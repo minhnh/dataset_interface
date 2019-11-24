@@ -179,7 +179,7 @@ class MetricLogger(object):
     def add_meter(self, name, meter):
         self.meters[name] = meter
 
-    def log_every(self, iterable, print_freq, header=None):
+    def log_every(self, iterable, print_freq, header=None, loss_file_name=None):
         i = 0
         if not header:
             header = ''
@@ -210,6 +210,10 @@ class MetricLogger(object):
                     meters=str(self),
                     time=str(iter_time), data=str(data_time),
                     memory=torch.cuda.max_memory_allocated() / MB))
+
+                if loss_file_name:
+                    with open(loss_file_name, 'a+') as loss_file:
+                        loss_file.write(str(self.loss).split(' ')[0] + '\n')
             i += 1
             end = time.time()
         total_time = time.time() - start_time
