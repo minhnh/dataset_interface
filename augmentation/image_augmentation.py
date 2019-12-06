@@ -16,7 +16,7 @@ import time
 def apply_random_transformation(background_size, segmented_box, margin=0.1, max_obj_size_in_bg=0.4, prob_rand_transformation=0.3):
     """apply a random transformation to 2D coordinates nomalized to image size"""
     # translate object coordinates to the object center's frame, i.e. whitens
-    whitened_coords_norm = segmented_box.segmented_coords_norm - (segmented_box.x_min_norm, segmented_box.y_min_norm)
+    whitened_coords_norm = segmented_box.segmented_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
 
     # then generate a random rotation around the z-axis (perpendicular to the image plane), and limit the object scale
     # to maximum (default) 50% of the background image, i.e. the normalized largest dimension of the object must be at
