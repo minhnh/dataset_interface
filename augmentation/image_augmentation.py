@@ -10,42 +10,46 @@ from dataset_interface.utils import TerminalColors, glob_extensions_in_directory
                                     display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask, \
                                     draw_labeled_boxes, split_path
 from dataset_interface.augmentation.background_segmentation import get_image_mask_path
+import pdb
+import time
 
-
-def apply_random_transformation(background_size, segmented_box, margin=0.1, max_obj_size_in_bg=0.4):
+def apply_random_transformation(background_size, segmented_box, margin=0.1, max_obj_size_in_bg=0.4, prob_rand_transformation=0.3):
     """apply a random transformation to 2D coordinates nomalized to image size"""
-    orig_coords_norm = segmented_box.segmented_coords_homog_norm[:, :2]
     # translate object coordinates to the object center's frame, i.e. whitens
-    whitened_coords_norm = orig_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
+    whitened_coords_norm = segmented_box.segmented_coords_norm - (segmented_box.x_min_norm, segmented_box.y_min_norm)
 
     # then generate a random rotation around the z-axis (perpendicular to the image plane), and limit the object scale
     # to maximum (default) 50% of the background image, i.e. the normalized largest dimension of the object must be at
     # most 0.5. To put it simply, scale the objects down if they're too big.
     # TODO(minhnh) add shear
-    max_scale = 1.
+    max_scale = 1.75
     if segmented_box.max_dimension_norm > max_obj_size_in_bg:
         max_scale = max_obj_size_in_bg / segmented_box.max_dimension_norm
     random_rot_angle = np.random.uniform(0, np.pi)
-    rand_scale = np.random.uniform(0.5*max_scale, max_scale)
+    rand_scale = np.random.uniform(0.5, max_scale)
 
     # generate a random translation within the image boundaries for whitened, normalized coordinates, taking into
     # account the maximum allowed object dimension. After this translation, the normalized coordinates should
     # stay within [margin, 1-margin] for each dimension
     scaled_max_dimension = segmented_box.max_dimension_norm * max_scale
     low_norm_bound, high_norm_bound = ((scaled_max_dimension / 2) + margin, 1 - margin - (scaled_max_dimension / 2))
-    random_translation_x = np.random.uniform(low_norm_bound, high_norm_bound)
-    random_translation_y = np.random.uniform(low_norm_bound, high_norm_bound)
+    random_translation_x = np.random.uniform(low_norm_bound, high_norm_bound) * background_size[1]
+    random_translation_y = np.random.uniform(low_norm_bound, high_norm_bound) * background_size[0]
 
     # create the transformation matrix for the generated rotation, translation and scale
-    tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=rand_scale,
-                                    translation=(random_translation_x, random_translation_y)).params
+    if np.random.uniform() > prob_rand_transformation:
+        tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=min(background_size),
+                                        translation=(random_translation_x, random_translation_y)).params
+    else:
+        tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=rand_scale * min(background_size),
+                                        translation=(random_translation_x, random_translation_y)).params
 
     # apply transformation
-    transformed_coords_norm = matrix_transform(whitened_coords_norm, tf_matrix)
-    return transformed_coords_norm
+    transformed_coords = matrix_transform(whitened_coords_norm, tf_matrix)
+    return transformed_coords
 
 
-def apply_image_filters(bgr_image, prob_rand_color=0.2, prob_rand_noise=0.2,
+def apply_image_filters(bgr_image, prob_rand_color=0.2, prob_rand_noise=0.01,
                         prob_rand_bright=0.2, bright_shift_range=(-5, 5)):
     """
     apply image filters to image
@@ -170,12 +174,8 @@ class ImageAugmenter(object):
     def project_segmentation_on_background(self, background_image, segmented_obj_data, augmented_mask):
         # create a random transformation
         bg_height, bg_width = background_image.shape[:2]
-        transformed_coords_norm = apply_random_transformation((bg_height, bg_width), segmented_obj_data.segmented_box)
-
-        # denormalize transformed coordinates, preserving aspect ratio, but making sure the object is within
-        # background image
-        denorm_factor = min(bg_height, bg_width)
-        transformed_coords = np.array(transformed_coords_norm * denorm_factor, dtype=int)
+        transformed_coords = apply_random_transformation((bg_height, bg_width), segmented_obj_data.segmented_box)
+        transformed_coords = transformed_coords.astype(np.int)
 
         # create and clean a new mask for the projected pixels
         morph_kernel_size = 2
@@ -285,6 +285,7 @@ class ImageAugmenter(object):
             bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy, obj,augmented_mask)
             generated_ann = box.to_dict()
             annotations.append(generated_ann)
+            time.sleep(0.1)
         return bg_img_copy, annotations, augmented_mask
 
     def generate_detection_data(self, split_name, output_dir_images, output_dir_masks, output_annotation_dir, max_obj_num_per_bg,
