@@ -333,7 +333,7 @@ class ImageAugmenter(object):
         # Total number of images = classes * objects per background * number of backgrounds
         total_img_cnt = len(self._background_paths) * num_images_per_bg
         zero_pad_num = len(str(total_img_cnt))
-        annotations = []
+        annotations = {}
         for bg_path in self._background_paths:
             # generate new image
             try:
@@ -354,13 +354,13 @@ class ImageAugmenter(object):
                 img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
                 img_file_path = os.path.join(split_output_dir_images, img_file_name)
                 
-                mask_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
+                mask_file_name = '{}_{}.png'.format(split_name, str(img_cnt).zfill(zero_pad_num))
                 mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
 
                 # Cast box_annotations_class_id 
                 for box in box_annotations:
                     box['class_id'] = int(box['class_id'])
-                annotations.append({'image_name': img_file_name, 'objects': box_annotations})
+                annotations[img_file_name] =  box_annotations
                 cv2.imwrite(img_file_path, generated_image)
                 cv2.imwrite(mask_file_path, augmented_mask)
                 img_cnt += 1
@@ -370,8 +370,10 @@ class ImageAugmenter(object):
                     # periodically dump annotations
                     with open(annotation_path, 'a') as infile:
                         yaml.dump(annotations, infile, default_flow_style=False)
-                        annotations = []
+                        annotations = {}
 
                 # we restore the object path dictionary after the image augmentation with the current background
                 if not self._object_collections:
                     self._object_collections = copy.deepcopy(img_path_dictionary)
+        with open(annotation_path, 'a') as infile:
+            yaml.dump(annotations, infile, default_flow_style=False)

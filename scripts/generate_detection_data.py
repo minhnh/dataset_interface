@@ -46,13 +46,13 @@ def generate_masks_and_annotations(data_dir, background_dir, class_annotation_fi
 
         # num_image_per_bg = -1
         # while num_image_per_bg < 0:
-        #     num_image_per_bg = int(prompt_for_float("please enter the number of images to be generated"
-        #                                             " for each background"))
+        num_images_per_bg = int(prompt_for_float("please enter the number of images to be generated"
+                                                " for each background"))
 
         max_obj_num_per_bg = int(prompt_for_float("enter the maximum number of objects per background"))
         # generate images
         augmenter.generate_detection_data(split_name, output_dir_images, output_dir_masks, output_annotation_dir, max_obj_num_per_bg, 
-            display_boxes=display_boxes, invert_mask=invert_mask)
+            display_boxes=display_boxes, invert_mask=invert_mask, num_images_per_bg=num_images_per_bg)
 
         if not prompt_for_yes_or_no("do you want to generate images for another dataset split?"):
             break
