@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-from typing import Sequence, Dict
-
 import os
 import random
 import yaml
@@ -12,12 +10,9 @@ try:
     sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 except:
     pass
-import cv2
-import matplotlib.pyplot as plt
 
 import torch
 import torchvision
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 import dataset_interface.object_detection.dataset as dataset
 from dataset_interface.object_detection.engine import train_one_epoch, validate_one_epoch
@@ -32,37 +27,6 @@ def get_transform(train):
         transforms.append(T.RandomHorizontalFlip(0.5))
     return T.Compose(transforms)
 
-def get_model(num_classes: int):
-    '''Returns a Faster R-CNN model pretrained on COCO and
-    with a final layer matching the given number number of classes.
-
-    num_classes: int -- number of classes in the model (including a background class)
-
-    '''
-    # we load Faster R-CNN pre-trained on COCO
-    model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
-
-    # we get the number of input features for the classifier
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-
-    # we finally replace the head of the pretrained model
-    # so that it matches our number of classes
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-
-    return model
-
-def get_class_metadata(class_metadata_file_path: str) -> Dict[int, str]:
-    '''Returns a dictionary in which the keys are
-
-    Keyword arguments:
-    class_metadata_file_path: str -- path to a file with category metadata
-
-    '''
-    with open(class_metadata_file_path) as file:
-        class_metadata = yaml.load(file, Loader=yaml.FullLoader)
-    class_metadata[0] = '__background'
-    return class_metadata
-
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('-d', '--data_path', type=str,
@@ -73,7 +37,7 @@ if __name__ == '__main__':
                            default='/home/lucy/data/class_metadata.yaml')
     argparser.add_argument('-m', '--model_path', type=str,
                            help='Path to a directory where the trained models (one per epoch) should be saved',
-                           default='/home/lucy/data/model.pt')
+                           default='/home/lucy/models')
     argparser.add_argument('-e', '--num_epochs', type=int,
                            help='Number of training epochs',
                            default=10)
@@ -125,7 +89,7 @@ if __name__ == '__main__':
         sys.exit(1)
 
     # we read the class metadata
-    class_metadata = get_class_metadata(class_metadata_file_path)
+    class_metadata = utils.get_class_metadata(class_metadata_file_path)
     num_classes = len(class_metadata.keys())
 
     # we create a data loader by instantiating an appropriate
@@ -155,7 +119,7 @@ if __name__ == '__main__':
                                                   collate_fn=utils.collate_fn)
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    model = get_model(num_classes)
+    model = utils.get_model(num_classes)
 
     # we now define an optimiser, and train
     params = [p for p in model.parameters() if p.requires_grad]
