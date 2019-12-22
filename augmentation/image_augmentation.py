@@ -155,7 +155,7 @@ class ImageAugmenter(object):
         # load segmented objects
         TerminalColors.formatted_print("Loading object masks for '{}' classes".format(len(self._class_dict)),
                                        TerminalColors.OKBLUE)
-        
+
         for cls_id, (cls_name, _) in self._class_dict.items():
             obj_dir = os.path.join(data_dir, cls_name)
             obj_img_dir = os.path.join(obj_dir, 'images')
@@ -197,7 +197,7 @@ class ImageAugmenter(object):
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
         background_image[cleaned_y_coords, clean_x_coords] = projected_bgr[cleaned_y_coords, clean_x_coords]
 
-        # Add object mask 
+        # Add object mask
         augmented_mask[cleaned_y_coords, clean_x_coords] = self._class_dict[segmented_obj_data.class_id][1][::-1]
         # display_image_and_wait(augmented_mask, 'object onto the background') # NOTE: remove
         new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width), class_id=segmented_obj_data.class_id)
@@ -279,7 +279,7 @@ class ImageAugmenter(object):
 
         augmented_mask = bg_img_copy.copy()
         augmented_mask[:] = (255,255,255)
-        
+
         annotations = []
         for obj in sampled_objects:
             bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy, obj,augmented_mask)
@@ -317,7 +317,7 @@ class ImageAugmenter(object):
                 raise RuntimeError("not overwriting '{}'".format(split_output_dir_masks))
 
         # check output annotation file
-        annotation_path = os.path.join(output_annotation_dir, split_name + '.yml')
+        annotation_path = os.path.join(output_annotation_dir, split_name + '.yaml')
         TerminalColors.formatted_print("generating annotations for split '{}' in '{}'"
                                        .format(split_name, annotation_path), TerminalColors.BOLD)
         if os.path.isfile(annotation_path):
@@ -354,11 +354,11 @@ class ImageAugmenter(object):
                 # write image and annotations
                 img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
                 img_file_path = os.path.join(split_output_dir_images, img_file_name)
-                
+
                 mask_file_name = '{}_{}.png'.format(split_name, str(img_cnt).zfill(zero_pad_num))
                 mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
 
-                # Cast box_annotations_class_id 
+                # Cast box_annotations_class_id
                 for box in box_annotations:
                     box['class_id'] = int(box['class_id'])
                 annotations[img_file_name] =  box_annotations
