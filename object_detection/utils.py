@@ -1,3 +1,10 @@
+'''This script is a slighty modified version of the utils script provided in the
+Torchvision Object Detection Finetuning Tutorial: https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html
+
+The script particularly includes additional functions for plotting detection
+bounding boxes; these are taken from the tutorial Faster R-CNN Object Detection with PyTorch:
+https://www.learnopencv.com/faster-r-cnn-object-detection-with-pytorch/
+'''
 from __future__ import print_function
 
 from typing import Sequence, Dict

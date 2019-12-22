@@ -1,3 +1,6 @@
+'''This script is taken from the Torchvision Object Detection Finetuning Tutorial:
+https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html
+'''
 import random
 import torch
 

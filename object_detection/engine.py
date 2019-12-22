@@ -1,3 +1,6 @@
+'''This script is a slighty modified version of the engine script provided in the
+Torchvision Object Detection Finetuning Tutorial: https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html
+'''
 import math
 import sys
 import time
@@ -52,7 +55,7 @@ def validate_one_epoch(model, data_loader, device, epoch, print_freq, loss_file_
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
 
-    header = '------------------------------'
+    header = '------------------------------\n'
     header += 'Epoch: [{}]'.format(epoch)
 
     for images, targets in metric_logger.log_every(data_loader, print_freq, header, loss_file_name):
