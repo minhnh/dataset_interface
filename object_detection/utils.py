@@ -1,15 +1,112 @@
 from __future__ import print_function
 
+from typing import Sequence, Dict
+
+import os
+import yaml
 from collections import defaultdict, deque
 import datetime
 import pickle
 import time
 
 import torch
+import torchvision
 import torch.distributed as dist
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 import errno
-import os
+
+def get_model(num_classes: int):
+    '''Returns a Faster R-CNN model pretrained on COCO and
+    with a final layer matching the given number number of classes.
+
+    num_classes: int -- number of classes in the model (including a background class)
+
+    '''
+    # we load Faster R-CNN pre-trained on COCO
+    model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
+
+    # we get the number of input features for the classifier
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+
+    # we finally replace the head of the pretrained model
+    # so that it matches our number of classes
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+
+    return model
+
+def get_class_metadata(class_metadata_file_path: str) -> Dict[int, str]:
+    '''Returns a dictionary in which the keys are
+
+    Keyword arguments:
+    class_metadata_file_path: str -- path to a file with category metadata
+
+    '''
+    with open(class_metadata_file_path) as file:
+        class_metadata = yaml.load(file, Loader=yaml.FullLoader)
+    class_metadata[0] = '__background'
+    return class_metadata
+
+def get_prediction(model, img_path, class_metadata, threshold):
+    '''Returns the bounding boxes and class predictions
+    of the objects in the given image whose classification
+    score is higher than the given threshold.
+
+    Each bounding box is returned as a list of [(xmin, ymin), (xmax, ymax)] values.
+
+    Keyword arguments:
+    model: torchvision.models.detection.faster_rcnn.FastRCNN
+    img_path: str -- path to an image
+    class_metadata: Dict[int, str] -- a dictionary mapping class labels to class names
+    threshold: float -- detection score threshold
+
+    '''
+    img = Image.open(img_path)
+    transform = T.ToTensor()
+    img, _ = transform(img, None)
+    with torch.no_grad():
+        pred = model([img.to(device)])
+    pred_class = [class_metadata[i] for i in list(pred[0]['labels'].cpu().numpy())]
+    pred_boxes = [[(i[0], i[1]), (i[2], i[3])] for i in list(pred[0]['boxes'].cpu().detach().numpy())]
+    pred_score = list(pred[0]['scores'].cpu().detach().numpy())
+    pred_t = [i for i, x in enumerate(pred_score) if x > threshold]
+    if not pred_t:
+        return [], []
+    else:
+        pred_t = pred_t[-1]
+    pred_boxes = pred_boxes[:pred_t+1]
+    pred_class = pred_class[:pred_t+1]
+    return pred_boxes, pred_class
+
+def detect_objects(model, img_path, class_metadata,
+                   threshold=0.5, rect_th=10,
+                   text_size=1, text_th=3):
+    '''Detects objects in a given image and plots the image with the overlayed detections.
+
+    Keyword arguments:
+    model: torchvision.models.detection.faster_rcnn.FastRCNN
+    img_path: str -- path to an image
+    class_metadata: Dict[int, str] -- a dictionary mapping class labels to class names
+    threshold: float -- detection score threshold (default 0.5)
+    rect_th: float -- thickness (in pixels) of the plotted bounding box (default 10)
+    text_size: float -- size of the written class labels (default 1)
+    text_th: float -- thickness of the written class labels (default 3)
+
+    '''
+    boxes, pred_cls = get_prediction(img_path, class_metadata, threshold)
+    img = cv2.imread(img_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    for i in range(len(boxes)):
+        cv2.rectangle(img, boxes[i][0], boxes[i][1],
+                      color=(0, 255, 0), thickness=rect_th)
+        cv2.putText(img, pred_cls[i], boxes[i][0], cv2.FONT_HERSHEY_SIMPLEX,
+                    text_size, (255,0,0), thickness=text_th)
+    plt.figure(figsize=(20,30))
+    plt.imshow(img)
+    plt.xticks([])
+    plt.yticks([])
+    plt.show()
+
 
 
 class SmoothedValue(object):
