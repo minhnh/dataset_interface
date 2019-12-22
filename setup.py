@@ -15,7 +15,7 @@ ext_modules = [
 setup(
     name='dataset_interface',
     packages=['pycocotools', 'dataset_interface', 'dataset_interface.common', 'dataset_interface.coco',
-              'dataset_interface.augmentation'],
+              'dataset_interface.augmentation', 'dataset_interface.object_detection'],
     package_dir={
         'dataset_interface': '.',
         'pycocotools': COCO_API_PATH + 'PythonAPI/pycocotools'
