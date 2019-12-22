@@ -8,13 +8,17 @@ from collections import defaultdict, deque
 import datetime
 import pickle
 import time
+import errno
+from PIL import Image
+import cv2
+import matplotlib.pyplot as plt
 
 import torch
 import torchvision
 import torch.distributed as dist
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
-import errno
+import dataset_interface.object_detection.transforms as T
 
 def get_model(num_classes: int):
     '''Returns a Faster R-CNN model pretrained on COCO and
@@ -47,7 +51,7 @@ def get_class_metadata(class_metadata_file_path: str) -> Dict[int, str]:
     class_metadata[0] = '__background'
     return class_metadata
 
-def get_prediction(model, img_path, class_metadata, threshold):
+def get_prediction(model, device, img_path, class_metadata, threshold):
     '''Returns the bounding boxes and class predictions
     of the objects in the given image whose classification
     score is higher than the given threshold.
@@ -56,6 +60,7 @@ def get_prediction(model, img_path, class_metadata, threshold):
 
     Keyword arguments:
     model: torchvision.models.detection.faster_rcnn.FastRCNN
+    device: torch.device
     img_path: str -- path to an image
     class_metadata: Dict[int, str] -- a dictionary mapping class labels to class names
     threshold: float -- detection score threshold
@@ -78,13 +83,14 @@ def get_prediction(model, img_path, class_metadata, threshold):
     pred_class = pred_class[:pred_t+1]
     return pred_boxes, pred_class
 
-def detect_objects(model, img_path, class_metadata,
+def detect_objects(model, device, img_path, class_metadata,
                    threshold=0.5, rect_th=10,
                    text_size=1, text_th=3):
     '''Detects objects in a given image and plots the image with the overlayed detections.
 
     Keyword arguments:
     model: torchvision.models.detection.faster_rcnn.FastRCNN
+    device: torch.device
     img_path: str -- path to an image
     class_metadata: Dict[int, str] -- a dictionary mapping class labels to class names
     threshold: float -- detection score threshold (default 0.5)
@@ -93,7 +99,7 @@ def detect_objects(model, img_path, class_metadata,
     text_th: float -- thickness of the written class labels (default 3)
 
     '''
-    boxes, pred_cls = get_prediction(img_path, class_metadata, threshold)
+    boxes, pred_cls = get_prediction(model, device, img_path, class_metadata, threshold)
     img = cv2.imread(img_path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     for i in range(len(boxes)):
