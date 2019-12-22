@@ -53,6 +53,10 @@ indoor_cat_names = coco_api.get_sub_category_names('indoor')
 
 ```
 
+## Object Detection and Classification Model Training
+
+We primarily train detection models using the tools and model definitions from `torchvision` as described in the [Torchvision Object Detection Finetuning Tutorial](https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html). Guidelines for training and using models can be found in [`docs/object_detection.md`](docs/object_detection.md)
+
 ## Image augmentation
 
 We aim to ease the process of generating data for object detection. Using the green box in the picture below,
@@ -61,10 +65,3 @@ data for an object detection model. A more detailed documentation of how we solv
 in [`docs/image_augmentation.md`](docs/image_augmentation.md).
 
 ![Green Box](docs/green_box.png)
-
-## Training
-
-We primarily train detection models using the tools and model definitions from the
-[`tensorflow/models` repository](http://github.com/tensorflow/models). Documentation of how the tools in
-`tensorflow/models` are utilized for our specific use case can be found in
-[`docs/tensorflow_models.md`](docs/tensorflow_models.md)
