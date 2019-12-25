@@ -7,8 +7,6 @@ https://www.learnopencv.com/faster-r-cnn-object-detection-with-pytorch/
 '''
 from __future__ import print_function
 
-from typing import Sequence, Dict
-
 import os
 import yaml
 from collections import defaultdict, deque
@@ -27,7 +25,7 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 import dataset_interface.object_detection.transforms as T
 
-def get_model(num_classes: int):
+def get_model(num_classes):
     '''Returns a Faster R-CNN model pretrained on COCO and
     with a final layer matching the given number number of classes.
 
@@ -46,8 +44,9 @@ def get_model(num_classes: int):
 
     return model
 
-def get_class_metadata(class_metadata_file_path: str) -> Dict[int, str]:
-    '''Returns a dictionary in which the keys are
+def get_class_metadata(class_metadata_file_path):
+    '''Returns a dictionary in which the keys are class labels
+    and the values are descriptive class names.
 
     Keyword arguments:
     class_metadata_file_path: str -- path to a file with category metadata
