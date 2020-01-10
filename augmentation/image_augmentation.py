@@ -291,7 +291,9 @@ class ImageAugmenter(object):
 
     def create_image(self, params):
         bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
-                              split_output_dir_images, split_output_dir_masks = params
+                              split_output_dir_images, split_output_dir_masks, seed = params
+
+        np.random.seed(seed)
         generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
         # if display_boxes:
         #     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
@@ -383,8 +385,9 @@ class ImageAugmenter(object):
             # we store the current object path dictionary since we will sample images without replacement
             img_path_dictionary = copy.deepcopy(self._object_collections)
 
+
             bg_img_params = [(bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
-                              split_output_dir_images, split_output_dir_masks)] * num_images_per_bg
+                              split_output_dir_images, split_output_dir_masks, seed ) for seed in range(num_images_per_bg) ] 
 
             annotations_per_bg = pool.map(self.create_image, bg_img_params)
 
