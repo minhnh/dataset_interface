@@ -13,6 +13,7 @@ from dataset_interface.augmentation.background_segmentation import get_image_mas
 import pdb
 import time
 import multiprocessing as mp
+from tqdm import tqdm
 
 def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=0.05):
     """apply a random transformation to 2D coordinates nomalized to image size"""
@@ -375,7 +376,10 @@ class ImageAugmenter(object):
         img_cnt = mp.Value('i', 0)
         lock = mp.Lock()
         pool = mp.Pool(initializer=self.setup, initargs=[img_cnt, lock])
-        for bg_path in self._background_paths:
+        
+        for bg_idx in tqdm(range(len(self._background_paths))):
+            bg_path = self._background_paths[bg_idx]
+        # for bg_path in self._background_paths:
             # generate new image
             try:
                 bg_img = cv2.imread(bg_path)
