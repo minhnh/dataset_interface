@@ -15,7 +15,7 @@ import time
 import multiprocessing as mp
 from tqdm import tqdm
 
-def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=0.05):
+def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=0.0):
     """apply a random transformation to 2D coordinates nomalized to image size"""
     # translate object coordinates to the object center's frame, i.e. whitens
     whitened_coords_norm = segmented_box.segmented_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
@@ -43,7 +43,7 @@ def apply_random_transformation(background_size, segmented_box, margin=0.03, max
         tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=min(background_size),
                                         translation=(random_translation_x, random_translation_y)).params
     else:
-        tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=rand_scale * min(background_size),
+        tf_matrix = SimilarityTransform(scale=rand_scale * min(background_size),
                                         translation=(random_translation_x, random_translation_y)).params
 
     # apply transformation
@@ -193,7 +193,7 @@ class ImageAugmenter(object):
                                         segmented_obj_data.segmented_x_coords]
         kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
         projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
-        projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.5)
+        projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.5/prob_rand_bright=)
 
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
