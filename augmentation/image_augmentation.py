@@ -193,7 +193,7 @@ class ImageAugmenter(object):
                                         segmented_obj_data.segmented_x_coords]
         kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
         projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
-        projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.)
+        # projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.)
 
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
@@ -376,7 +376,7 @@ class ImageAugmenter(object):
         img_cnt = mp.Value('i', 0)
         lock = mp.Lock()
         pool = mp.Pool(initializer=self.setup, initargs=[img_cnt, lock])
-        
+
         for bg_idx in tqdm(range(len(self._background_paths))):
             bg_path = self._background_paths[bg_idx]
         # for bg_path in self._background_paths:
