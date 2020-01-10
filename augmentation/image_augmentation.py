@@ -12,6 +12,7 @@ from dataset_interface.utils import TerminalColors, glob_extensions_in_directory
 from dataset_interface.augmentation.background_segmentation import get_image_mask_path
 import pdb
 import time
+import multiprocessing as mp
 
 def apply_random_transformation(background_size, segmented_box, margin=0.1, max_obj_size_in_bg=0.4, prob_rand_transformation=0.3):
     """apply a random transformation to 2D coordinates nomalized to image size"""
@@ -288,6 +289,34 @@ class ImageAugmenter(object):
             time.sleep(0.1)
         return bg_img_copy, annotations, augmented_mask
 
+    def create_image(self, image_cnt):
+        generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
+        if display_boxes:
+            drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
+            display_image_and_wait(drawn_img, 'box image')
+
+        # write image and annotations
+        img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
+        img_file_path = os.path.join(split_output_dir_images, img_file_name)
+
+        mask_file_name = '{}_{}.png'.format(split_name, str(img_cnt).zfill(zero_pad_num))
+        mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
+
+        # Cast box_annotations_class_id
+        for box in box_annotations:
+            box['class_id'] = int(box['class_id'])
+        annotations[img_file_name] =  box_annotations
+        cv2.imwrite(img_file_path, generated_image)
+        cv2.imwrite(mask_file_path, augmented_mask)
+        
+        with lock:
+            img_cnt.value += 1
+
+    def set_up(self, t, l):
+        global img_cnt, lock 
+        img_cnt = t
+        lock = l
+
     def generate_detection_data(self, split_name, output_dir_images, output_dir_masks, output_annotation_dir, max_obj_num_per_bg,
         num_images_per_bg=10, display_boxes=False, write_chunk_ratio=0.05, invert_mask=False):
         """
@@ -329,12 +358,17 @@ class ImageAugmenter(object):
         #     max_obj_num_per_bg = len(self.class_dict)
 
         # generate images and annotations
-        img_cnt = 0
+        # img_cnt = 0
 
         # Total number of images = classes * objects per background * number of backgrounds
         total_img_cnt = len(self._background_paths) * num_images_per_bg
         zero_pad_num = len(str(total_img_cnt))
         annotations = {}
+
+        # Prepare multiprocessing 
+        img_cnt = mp.Value('i', 0)
+        lock = mp.Lock()
+        pool = mp.Pool(initializer=setup, initargs=[total, lock])
         for bg_path in self._background_paths:
             # generate new image
             try:
@@ -345,26 +379,27 @@ class ImageAugmenter(object):
             # we store the current object path dictionary since we will sample images without replacement
             img_path_dictionary = copy.deepcopy(self._object_collections)
 
-            for _ in range(num_images_per_bg):
-                generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
-                if display_boxes:
-                    drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
-                    display_image_and_wait(drawn_img, 'box image')
+            for _ in range(int(num_images_per_bg/num_cores)):
+                pool.map(self.create_image)
+                # generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
+                # if display_boxes:
+                #     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
+                #     display_image_and_wait(drawn_img, 'box image')
 
-                # write image and annotations
-                img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
-                img_file_path = os.path.join(split_output_dir_images, img_file_name)
+                # # write image and annotations
+                # img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
+                # img_file_path = os.path.join(split_output_dir_images, img_file_name)
 
-                mask_file_name = '{}_{}.png'.format(split_name, str(img_cnt).zfill(zero_pad_num))
-                mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
+                # mask_file_name = '{}_{}.png'.format(split_name, str(img_cnt).zfill(zero_pad_num))
+                # mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
 
-                # Cast box_annotations_class_id
-                for box in box_annotations:
-                    box['class_id'] = int(box['class_id'])
-                annotations[img_file_name] =  box_annotations
-                cv2.imwrite(img_file_path, generated_image)
-                cv2.imwrite(mask_file_path, augmented_mask)
-                img_cnt += 1
+                # # Cast box_annotations_class_id
+                # for box in box_annotations:
+                #     box['class_id'] = int(box['class_id'])
+                # annotations[img_file_name] =  box_annotations
+                # cv2.imwrite(img_file_path, generated_image)
+                # cv2.imwrite(mask_file_path, augmented_mask)
+                # img_cnt += 1
 
                 # Writing annotations
                 if print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
