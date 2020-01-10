@@ -370,7 +370,7 @@ class ImageAugmenter(object):
         # Prepare multiprocessing 
         img_cnt = mp.Value('i', 0)
         lock = mp.Lock()
-        pool = mp.Pool(initializer=setup, initargs=[total, lock])
+        pool = mp.Pool(initializer=self.setup, initargs=[total, lock])
         for bg_path in self._background_paths:
             # generate new image
             try:
