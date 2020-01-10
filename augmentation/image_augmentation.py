@@ -14,7 +14,7 @@ import pdb
 import time
 import multiprocessing as mp
 
-def apply_random_transformation(background_size, segmented_box, margin=0.1, max_obj_size_in_bg=0.4, prob_rand_transformation=0.3):
+def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=0.3):
     """apply a random transformation to 2D coordinates nomalized to image size"""
     # translate object coordinates to the object center's frame, i.e. whitens
     whitened_coords_norm = segmented_box.segmented_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
@@ -308,7 +308,7 @@ class ImageAugmenter(object):
         annotations[img_file_name] =  box_annotations
         cv2.imwrite(img_file_path, generated_image)
         cv2.imwrite(mask_file_path, augmented_mask)
-        
+
         with lock:
             img_cnt.value += 1
 
