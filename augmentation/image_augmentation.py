@@ -289,30 +289,32 @@ class ImageAugmenter(object):
             time.sleep(0.1)
         return bg_img_copy, annotations, augmented_mask
 
-    def create_image(self, image_cnt):
+    def create_image(self, params):
         generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
-        if display_boxes:
-            drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
-            display_image_and_wait(drawn_img, 'box image')
+        # if display_boxes:
+        #     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
+        #     display_image_and_wait(drawn_img, 'box image')
 
         # write image and annotations
-        img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
-        img_file_path = os.path.join(split_output_dir_images, img_file_name)
+        with lock:
+            img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt.value).zfill(zero_pad_num))
+            img_file_path = os.path.join(split_output_dir_images, img_file_name)
 
-        mask_file_name = '{}_{}.png'.format(split_name, str(img_cnt).zfill(zero_pad_num))
-        mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
+            mask_file_name = '{}_{}.png'.format(split_name, str(img_cnt.value).zfill(zero_pad_num))
+            mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
+            cv2.imwrite(img_file_path, generated_image)
+            cv2.imwrite(mask_file_path, augmented_mask)
+
+            img_cnt.value += 1
 
         # Cast box_annotations_class_id
         for box in box_annotations:
             box['class_id'] = int(box['class_id'])
-        annotations[img_file_name] =  box_annotations
-        cv2.imwrite(img_file_path, generated_image)
-        cv2.imwrite(mask_file_path, augmented_mask)
+        # annotations[img_file_name] =  box_annotations
 
-        with lock:
-            img_cnt.value += 1
+        return (img_file_name, box_annotations) 
 
-    def set_up(self, t, l):
+    def setup(self, t, l):
         global img_cnt, lock 
         img_cnt = t
         lock = l
@@ -379,8 +381,13 @@ class ImageAugmenter(object):
             # we store the current object path dictionary since we will sample images without replacement
             img_path_dictionary = copy.deepcopy(self._object_collections)
 
-            for _ in range(int(num_images_per_bg/num_cores)):
-                pool.map(self.create_image)
+            bg_img_params = [(bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
+                              split_output_dir_images, split_output_dir_masks)] * num_images_per_bg
+
+            annotations_per_bg = pool.map(self.create_image, bg_img_params)
+
+            for img_file_name, box_annotations in annotations_per_bg:
+                annotations[img_file_name] = box_annotations
                 # generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
                 # if display_boxes:
                 #     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
@@ -401,12 +408,12 @@ class ImageAugmenter(object):
                 # cv2.imwrite(mask_file_path, augmented_mask)
                 # img_cnt += 1
 
-                # Writing annotations
-                if print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
-                    # periodically dump annotations
-                    with open(annotation_path, 'a') as infile:
-                        yaml.dump(annotations, infile, default_flow_style=False)
-                        annotations = {}
+            # Writing annotations
+            if print_progress(img_cnt.value + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
+                # periodically dump annotations
+                with open(annotation_path, 'a') as infile:
+                    yaml.dump(annotations, infile, default_flow_style=False)
+                    annotations = {}
 
                 # we restore the object path dictionary after the image augmentation with the current background
                 if not self._object_collections:
