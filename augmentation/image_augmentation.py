@@ -277,7 +277,7 @@ class ImageAugmenter(object):
         """generate a single image and its bounding box annotations"""
         sampled_objects = self._sample_classes(max_obj_num_per_bg, invert_mask)
         bg_img_copy = background_image.copy()
-        bg_img_copy = apply_image_filters(bg_img_copy)
+        # bg_img_copy = apply_image_filters(bg_img_copy)
 
         augmented_mask = bg_img_copy.copy()
         augmented_mask[:] = (255,255,255)
@@ -424,8 +424,8 @@ class ImageAugmenter(object):
                     yaml.dump(annotations, infile, default_flow_style=False)
                     annotations = {}
 
-                # we restore the object path dictionary after the image augmentation with the current background
-                if not self._object_collections:
-                    self._object_collections = copy.deepcopy(img_path_dictionary)
+            # we restore the object path dictionary after the image augmentation with the current background
+            if not self._object_collections:
+                self._object_collections = copy.deepcopy(img_path_dictionary)
         with open(annotation_path, 'a') as infile:
             yaml.dump(annotations, infile, default_flow_style=False)
