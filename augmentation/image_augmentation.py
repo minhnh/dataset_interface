@@ -14,7 +14,7 @@ import pdb
 import time
 import multiprocessing as mp
 
-def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=0.3):
+def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=0.05):
     """apply a random transformation to 2D coordinates nomalized to image size"""
     # translate object coordinates to the object center's frame, i.e. whitens
     whitened_coords_norm = segmented_box.segmented_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
@@ -192,7 +192,7 @@ class ImageAugmenter(object):
                                         segmented_obj_data.segmented_x_coords]
         kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
         projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
-        projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.2)
+        projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.)
 
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
