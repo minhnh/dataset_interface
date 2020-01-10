@@ -290,6 +290,8 @@ class ImageAugmenter(object):
         return bg_img_copy, annotations, augmented_mask
 
     def create_image(self, params):
+        bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
+                              split_output_dir_images, split_output_dir_masks = params
         generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
         # if display_boxes:
         #     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
@@ -370,7 +372,7 @@ class ImageAugmenter(object):
         # Prepare multiprocessing 
         img_cnt = mp.Value('i', 0)
         lock = mp.Lock()
-        pool = mp.Pool(initializer=self.setup, initargs=[total, lock])
+        pool = mp.Pool(initializer=self.setup, initargs=[img_cnt, lock])
         for bg_path in self._background_paths:
             # generate new image
             try:
