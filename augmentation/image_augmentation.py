@@ -367,13 +367,6 @@ class ImageAugmenter(object):
             if not prompt_for_yes_or_no("file '{}' exists. Overwrite?".format(annotation_path)):
                 raise RuntimeError("not overwriting '{}'".format(annotation_path))
 
-        # # store a reasonable value for the maximum number of objects projected onto each background
-        # if max_obj_num_per_bg <= 0 or max_obj_num_per_bg > len(self.class_dict):
-        #     max_obj_num_per_bg = len(self.class_dict)
-
-        # generate images and annotations
-        # img_cnt = 0
-
         # Total number of images = classes * objects per background * number of backgrounds
         total_img_cnt = len(self._background_paths) * num_images_per_bg
         zero_pad_num = len(str(total_img_cnt))
@@ -405,25 +398,6 @@ class ImageAugmenter(object):
 
             for img_file_name, box_annotations in annotations_per_bg:
                 annotations[img_file_name] = box_annotations
-                # generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
-                # if display_boxes:
-                #     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
-                #     display_image_and_wait(drawn_img, 'box image')
-
-                # # write image and annotations
-                # img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
-                # img_file_path = os.path.join(split_output_dir_images, img_file_name)
-
-                # mask_file_name = '{}_{}.png'.format(split_name, str(img_cnt).zfill(zero_pad_num))
-                # mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
-
-                # # Cast box_annotations_class_id
-                # for box in box_annotations:
-                #     box['class_id'] = int(box['class_id'])
-                # annotations[img_file_name] =  box_annotations
-                # cv2.imwrite(img_file_path, generated_image)
-                # cv2.imwrite(mask_file_path, augmented_mask)
-                # img_cnt += 1
 
             # Writing annotations
             if print_progress(img_cnt.value + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
