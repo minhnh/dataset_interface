@@ -15,7 +15,7 @@ import time
 import multiprocessing as mp
 from tqdm import tqdm
 
-def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=0.0):
+def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=1.0):
     """apply a random transformation to 2D coordinates nomalized to image size"""
     # translate object coordinates to the object center's frame, i.e. whitens
     whitened_coords_norm = segmented_box.segmented_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
@@ -173,10 +173,11 @@ class ImageAugmenter(object):
                 TerminalColors.formatted_print("skipping class '{}': {}".format(cls_name, e), TerminalColors.WARNING)
                 continue
 
-    def project_segmentation_on_background(self, background_image, segmented_obj_data, augmented_mask):
+    def project_segmentation_on_background(self, background_image, segmented_obj_data, augmented_mask, prob_rand_transformation=1.0):
         # create a random transformation
         bg_height, bg_width = background_image.shape[:2]
-        transformed_coords = apply_random_transformation((bg_height, bg_width), segmented_obj_data.segmented_box)
+        transformed_coords = apply_random_transformation((bg_height, bg_width), segmented_obj_data.segmented_box, 
+                                                          prob_rand_transformation=prob_rand_transformation)
         transformed_coords = transformed_coords.astype(np.int)
 
         # create and clean a new mask for the projected pixels
@@ -273,7 +274,7 @@ class ImageAugmenter(object):
             sample_count += 1
         return sampled_objects
 
-    def generate_single_image(self, background_image, max_obj_num_per_bg, invert_mask=False):
+    def generate_single_image(self, background_image, max_obj_num_per_bg, invert_mask=False, prob_rand_trans=1.0):
         """generate a single image and its bounding box annotations"""
         sampled_objects = self._sample_classes(max_obj_num_per_bg, invert_mask)
         bg_img_copy = background_image.copy()
@@ -284,7 +285,10 @@ class ImageAugmenter(object):
 
         annotations = []
         for obj in sampled_objects:
-            bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy, obj,augmented_mask)
+            bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy, 
+                                                                       obj,
+                                                                       augmented_mask, 
+                                                                       prob_rand_transformation=prob_rand_trans)
             generated_ann = box.to_dict()
             annotations.append(generated_ann)
             time.sleep(0.1)
@@ -292,10 +296,13 @@ class ImageAugmenter(object):
 
     def create_image(self, params):
         bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
-                              split_output_dir_images, split_output_dir_masks, seed = params
+                              split_output_dir_images, split_output_dir_masks, prob_rand_trans, seed = params
 
         np.random.seed(seed)
-        generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, max_obj_num_per_bg, invert_mask)
+        generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, 
+                                                                                      max_obj_num_per_bg, 
+                                                                                      invert_mask,
+                                                                                      prob_rand_trans)
         # if display_boxes:
         #     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
         #     display_image_and_wait(drawn_img, 'box image')
@@ -325,7 +332,7 @@ class ImageAugmenter(object):
         lock = l
 
     def generate_detection_data(self, split_name, output_dir_images, output_dir_masks, output_annotation_dir, max_obj_num_per_bg,
-        num_images_per_bg=10, display_boxes=False, write_chunk_ratio=0.05, invert_mask=False):
+        num_images_per_bg=10, display_boxes=False, write_chunk_ratio=0.05, invert_mask=False, prob_rand_trans=1.0):
         """
         The main function which generate
         - generate synthetic images under <outpu_dir>/<split_name>
@@ -391,7 +398,8 @@ class ImageAugmenter(object):
 
 
             bg_img_params = [(bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
-                              split_output_dir_images, split_output_dir_masks, seed ) for seed in range(num_images_per_bg) ] 
+                              split_output_dir_images, split_output_dir_masks, prob_rand_trans, seed ) \
+                                  for seed in range(num_images_per_bg)] 
 
             annotations_per_bg = pool.map(self.create_image, bg_img_params)
 
