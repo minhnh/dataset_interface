@@ -81,7 +81,7 @@ if __name__ == '__main__':
                         help='(optional) whether to display the synthetic images with visualized bounding boxes')
     parser.add_argument('--invert_mask', '-im', action='store_true',
                         help='wheter to invert the mask (Required for YCB)')
-    parser.add_argument('--prob_rand_trans', '-pt', required=True, type=int,
+    parser.add_argument('--prob_rand_trans', '-pt', required=True, type=float,
                         help='probability of a random transformation (1.0 == No transformation applied)')
     args = parser.parse_args()
 
