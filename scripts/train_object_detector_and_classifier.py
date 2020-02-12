@@ -90,13 +90,14 @@ if __name__ == '__main__':
 
     # we read the class metadata
     class_metadata = utils.get_class_metadata(class_metadata_file_path)
+    class_metadata = {v:k for k, v in class_metadata.items()}
     num_classes = len(class_metadata.keys())
 
     # we create a data loader by instantiating an appropriate
     # dataset class depending on the annotation type
     dataset = None
     if annotation_type.lower() == 'voc':
-        dataset = DatasetVOC(data_path, get_transform(train=True), 'train')
+        dataset = DatasetVOC(data_path, get_transform(train=True), 'train', class_metadata)
     else:
         dataset = DatasetCustom(data_path, get_transform(train=True), 'train')
 
