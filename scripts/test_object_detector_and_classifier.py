@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 
+import sys
+try:
+    sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
+except:
+    pass
+
 import torch
 import torchvision
 
