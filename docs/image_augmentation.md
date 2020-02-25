@@ -60,11 +60,11 @@ mapping from class ID to class names described in [`tensorflow_models.md`](tenso
 
 ## Generating images and bounding box annotations from segmented masks
 
-Using object images and masks, synthetic images can be created by projecting the segmented pixels 
-onto background images, computing bounding box annotations and masks of the syntetic images. 
+Using object images and masks, synthetic images can be created by projecting the segmented pixels
+onto background images, computing bounding box annotations and masks of the syntetic images.
 
 The [`generate_detection_data.py`](../scripts/generate_detection_data.py) script handles user interactions for
-generating images, masks, and bounding box annotations from the segmented object masks.  This is done by randomly 
+generating images, masks, and bounding box annotations from the segmented object masks.  This is done by randomly
 projecting segemented object pixels onto backgrounds, then calculating the corresponding masks and bounding boxes.
 
 Usage:
@@ -74,37 +74,57 @@ $ scripts/generate_detection_data.py -h
 usage: generate_detection_data.py [-h] --data-directory DATA_DIRECTORY
                                   --background-directory BACKGROUND_DIRECTORY
                                   --class-annotations CLASS_ANNOTATIONS
+                                  --num-objects-per-class NUM_OBJECTS_PER_CLASS
+                                  --prob_rand_trans PROB_RAND_TRANS
                                   [--output-dir OUTPUT_DIR]
                                   [--output-annotation-dir OUTPUT_ANNOTATION_DIR]
+                                  [--annotation-format ANNOTATION_FORMAT]
+                                  [--invert_mask]
 
 optional arguments:
   -h, --help            show this help message and exit
-  --data-directory DATA_DIRECTORY, -d DATA_DIRECTORY
+  --data-directory, -d
                         directory where the script will look for images and
                         object masks (default: None)
-  --background-directory BACKGROUND_DIRECTORY, -bg BACKGROUND_DIRECTORY
-                        directory where the script will look for background 
+  --background-directory, -bg
+                        directory where the script will look for background
                         images (default: None)
-  --class-annotations CLASS_ANNOTATIONS, -c CLASS_ANNOTATIONS
+  --class-annotations, -c
                         file containing mappings from class ID to class name
                         (default: None)
-  --output-dir OUTPUT_DIR, -o OUTPUT_DIR
+  --num-objects-per-class -n
+                        maximum number of images per class that are used for augmentation
+                        (this means that if there are more available images from the class,
+                        not all of them will be used during augmentation)
+  --prob_rand_trans -pt
+                        probability of applying a random rotation to each object
+                        during augmentation (probability = 0 means that no rotation
+                        will be applied)
+  --output-dir, -o
                         (optional) directory to store generated images
                         (default: None)
-  --output-annotation-dir OUTPUT_ANNOTATION_DIR, -a OUTPUT_ANNOTATION_DIR
-                        (optional) directory to store the generated YAML
+  --output-annotation-dir, -a
+                        (optional) directory to store the generated
                         annotations (default: None)
-  --display-boxes, -b   (optional) whether to display the synthetic images
-                        with visualized bounding boxes (default: False)
+  --invert_mask - im
+                        whether to invert the colours of the object segmentation mask
+                        (necessary for black and white masks in case the object is black
+                        and the background is white)
+  --annotation-format -af
+                        format in which the augmented images should be annotated
+                        (allowed values 'custom' and 'voc'); in case of custom
+                        annotations, only a YAML annotation file as described below
+                        is created, while in case of VOC annotations, a VOC annotation
+                        file for each image is created as well
 ```
 
 
 
 The script will look for the objects' masks and images in the `<DATA_DIRECTORY>` and for background images in the
-`<BACKGROUND_DIRECTORY>`. It will prompt for the data split name (e.g. `go_2019_train`). This will be used as the 
-annotation file name and the prefix for the image names. If `<OUTPUT_DIR>` is not specified, the images will be 
-created under `<DATA_DIRECTORY>/synthetic_images/<split_name>`. If `<OUTPUT_ANNOTATION_DIR>` is not specified, 
-the annotations will be appended to `<DATA_DIRECTORY>/annotations/<split_name>.yml`. 
+`<BACKGROUND_DIRECTORY>`. It will prompt for the data split name (e.g. `go_2019_train`). This will be used as the
+annotation file name and the prefix for the image names. If `<OUTPUT_DIR>` is not specified, the images will be
+created under `<DATA_DIRECTORY>/synthetic_images/<split_name>`. If `<OUTPUT_ANNOTATION_DIR>` is not specified,
+the annotations will be appended to `<DATA_DIRECTORY>/annotations/<split_name>.yml`.
 
 The `<DATA_DIRECTORY>` is expected to be organized in the following manner:
 
