@@ -78,7 +78,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-objects-per-class', '-n', required=True, type=int,
                         help='number of object per class')
     parser.add_argument('--prob_rand_trans', '-pt', required=True, type=float,
-                        help='probability of a random transformation (1.0 == No transformation applied)')
+                        help='probability of a random transformation (0.0 == No transformation applied)')
     parser.add_argument('--output-dir', '-o', default=None,
                         help='(optional) directory to store generated images')
     parser.add_argument('--output-annotation-dir', '-a', default=None,

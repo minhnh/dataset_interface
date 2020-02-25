@@ -41,7 +41,7 @@ def apply_random_transformation(background_size, segmented_box, margin=0.03, max
     random_translation_y = np.random.uniform(low_norm_bound, high_norm_bound) * background_size[0]
 
     # create the transformation matrix for the generated rotation, translation and scale
-    if np.random.uniform() > prob_rand_transformation:
+    if np.random.uniform() < prob_rand_transformation:
         tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=min(background_size),
                                         translation=(random_translation_x, random_translation_y)).params
     else:
