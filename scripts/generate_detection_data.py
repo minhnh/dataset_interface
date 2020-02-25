@@ -7,7 +7,7 @@ from dataset_interface.augmentation.image_augmentation import ImageAugmenter
 
 def generate_masks_and_annotations(data_dir, background_dir, class_annotation_file,
                                    num_objects_per_class, output_dir, output_annotation_dir,
-                                   invert_mask, prob_rand_trans):
+                                   invert_mask, prob_rand_trans, annotation_format):
     augmenter = ImageAugmenter(data_dir, background_dir, class_annotation_file, num_objects_per_class)
     if not output_dir:
         output_dir = os.path.join(data_dir, 'synthetic_images')
@@ -55,7 +55,8 @@ def generate_masks_and_annotations(data_dir, background_dir, class_annotation_fi
                                           output_annotation_dir, max_obj_num_per_bg,
                                           invert_mask=invert_mask,
                                           num_images_per_bg=num_images_per_bg,
-                                          prob_rand_trans=prob_rand_trans)
+                                          prob_rand_trans=prob_rand_trans,
+                                          annotation_format=annotation_format)
 
         if not prompt_for_yes_or_no("do you want to generate images for another dataset split?"):
             break
@@ -76,20 +77,22 @@ if __name__ == '__main__':
                         help='file containing mappings from class ID to class name')
     parser.add_argument('--num-objects-per-class', '-n', required=True, type=int,
                         help='number of object per class')
+    parser.add_argument('--prob_rand_trans', '-pt', required=True, type=float,
+                        help='probability of a random transformation (1.0 == No transformation applied)')
     parser.add_argument('--output-dir', '-o', default=None,
                         help='(optional) directory to store generated images')
     parser.add_argument('--output-annotation-dir', '-a', default=None,
                         help='(optional) directory to store the generated YAML annotations')
     parser.add_argument('--invert_mask', '-im', action='store_true',
                         help='whether to invert the mask (Required for YCB)')
-    parser.add_argument('--prob_rand_trans', '-pt', required=True, type=float,
-                        help='probability of a random transformation (1.0 == No transformation applied)')
+    parser.add_argument('--annotation-format', '-af', default='custom',
+                        help='(optional) Annotation format - custom or voc (default custom)')
     args = parser.parse_args()
 
     try:
         generate_masks_and_annotations(args.data_directory, args.background_directory, args.class_annotations,
-                                       args.num_objects_per_class, args.output_dir,
-                                       args.output_annotation_dir, args.invert_mask, args.prob_rand_trans)
+                                       args.num_objects_per_class, args.output_dir, args.output_annotation_dir,
+                                       args.invert_mask, args.prob_rand_trans, args.annotation_format)
         TerminalColors.formatted_print('image and annotation generation complete', TerminalColors.OKGREEN)
     except KeyboardInterrupt:
         TerminalColors.formatted_print('\nscript interrupted', TerminalColors.WARNING)

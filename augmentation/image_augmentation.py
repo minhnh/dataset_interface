@@ -1,19 +1,21 @@
 import copy
 import os
 import yaml
+from collections import OrderedDict
+import time
+import multiprocessing as mp
+from tqdm import tqdm
+import xmltodict
 import numpy as np
 import cv2
 from skimage.transform import SimilarityTransform, matrix_transform
 from skimage.util import random_noise
+
 from dataset_interface.common import SegmentedBox
 from dataset_interface.utils import TerminalColors, glob_extensions_in_directory, ALLOWED_IMAGE_EXTENSIONS, \
                                     display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask, \
                                     draw_labeled_boxes, split_path
 from dataset_interface.augmentation.background_segmentation import get_image_mask_path
-import pdb
-import time
-import multiprocessing as mp
-from tqdm import tqdm
 
 def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=1.0):
     """apply a random transformation to 2D coordinates nomalized to image size"""
@@ -87,6 +89,43 @@ def apply_image_filters(bgr_image, prob_rand_color=0.2, prob_rand_noise=0.01,
 
     return bgr_image
 
+def get_voc_annotation_dict(image_name, image_dir, annotation_data, class_dict):
+    '''Returns a dictionary representing an image annotation in VOC format.
+    The "folder" and "size" tags are not included in the annotation.
+
+    Keyword arguments:
+    image_name: str -- name of the image for which an annotation is generated
+    image_dir: str -- directory in which the image is saved
+    annotation_data: Dict[Sequence[str, int]]: list of object annotation in the image;
+                                               the annotation for each object is expected
+                                               to contain the following keys:
+                                               {class_id, xmin, xmax, ymin, ymax}
+    class_dict: Dict[int, str] -- a dictionary mapping class IDs to class labels
+
+    '''
+    annotation_dict = OrderedDict()
+    annotation_dict['filename'] = image_name
+    annotation_dict['path'] = os.path.join(image_dir, image_name)
+    annotation_dict['source'] = {'database': 'unknown'}
+    annotation_dict['segmented'] = 0
+    annotation_dict['object'] = []
+    for object_data in annotation_data:
+        object_annotation = {'name': class_dict[object_data['class_id']],
+                             'pose': 'Unspecified',
+                             'truncated': 0,
+                             'difficult': 0,
+                             'bndbox': {'xmin': object_data['xmin'],
+                                        'ymin': object_data['ymin'],
+                                        'xmax': object_data['xmax'],
+                                        'ymax': object_data['ymax']
+                                       }
+                            }
+        annotation_dict['object'].append(object_annotation)
+    return {'annotation': annotation_dict}
+
+class AnnotationFormats(object):
+    CUSTOM = 'custom'
+    VOC = 'voc'
 
 class SegmentedObject(object):
     """"contains information processed from a single image-mask pair"""
@@ -113,8 +152,6 @@ class SegmentedObject(object):
     def view_segmented_color_img(self):
         segmented_bgr = cv2.bitwise_and(self.bgr_image, self.bgr_image, mask=self.mask_image)
         display_image_and_wait(segmented_bgr, 'segmented_object')
-
-
 
 
 class ImageAugmenter(object):
@@ -341,11 +378,38 @@ class ImageAugmenter(object):
         img_cnt = t
         lock = l
 
-    def generate_detection_data(self, split_name, output_dir_images, output_dir_masks, output_annotation_dir, max_obj_num_per_bg, num_images_per_bg=10, write_chunk_ratio=0.05, invert_mask=False, prob_rand_trans=1.0):
-        """
-        The main function which generate
-        - generate synthetic images under <outpu_dir>/<split_name>
-        - generate
+    def save_annotations(self, annotations, split_output_image_dir,
+                         output_annotation_dir, split_name,
+                         annotation_file_path, annotation_format):
+        with open(annotation_file_path, 'a') as infile:
+            yaml.dump(annotations, infile, default_flow_style=False)
+
+        if annotation_format == AnnotationFormats.VOC:
+            annotation_dir = os.path.join(output_annotation_dir, split_name)
+            for img_file_name, annotation_data in annotations.items():
+                annotation_dict = get_voc_annotation_dict(img_file_name,
+                                                          split_output_image_dir,
+                                                          annotation_data,
+                                                          self._class_dict)
+                img_name = img_file_name.split('.')[0]
+                img_annotation_file_path = os.path.join(annotation_dir, img_name + '.xml')
+                with open(img_annotation_file_path, 'w') as annotation_file:
+                    xmltodict.unparse(annotation_dict, output=annotation_file, pretty=True)
+
+    def generate_detection_data(self, split_name, output_dir_images, output_dir_masks,
+                                output_annotation_dir, max_obj_num_per_bg,
+                                num_images_per_bg=10, write_chunk_ratio=0.05,
+                                invert_mask=False, prob_rand_trans=1.0,
+                                annotation_format=AnnotationFormats.CUSTOM):
+        """Generates:
+        * synthetic images under <output_dir>/synthetic_images/<split_name>
+        * image annotations under <output_dir>/annotations
+
+        If annotation_format is equal to AnnotationFormats.VOC, an annotation
+        file is generated for each image under <output_dir>/annotations/split_name,
+        such that the name of the annotation is the same as the name of the
+        image file (e.g. if the image name is train_01.jpg, the name of the
+        annotation file will be train_01.xml).
         """
         split_output_dir_images = os.path.join(output_dir_images, split_name)
         split_output_dir_masks = os.path.join(output_dir_masks, split_name)
@@ -369,12 +433,20 @@ class ImageAugmenter(object):
                 raise RuntimeError("not overwriting '{}'".format(split_output_dir_masks))
 
         # check output annotation file
-        annotation_path = os.path.join(output_annotation_dir, split_name + '.yaml')
+        annotation_file_path = os.path.join(output_annotation_dir, split_name + '.yaml')
         TerminalColors.formatted_print("generating annotations for split '{}' in '{}'"
-                                       .format(split_name, annotation_path), TerminalColors.BOLD)
-        if os.path.isfile(annotation_path):
-            if not prompt_for_yes_or_no("file '{}' exists. Overwrite?".format(annotation_path)):
-                raise RuntimeError("not overwriting '{}'".format(annotation_path))
+                                       .format(split_name, annotation_file_path), TerminalColors.BOLD)
+        if os.path.isfile(annotation_file_path):
+            if not prompt_for_yes_or_no("file '{}' exists. Overwrite?".format(annotation_file_path)):
+                raise RuntimeError("not overwriting '{}'".format(annotation_file_path))
+
+        if annotation_format == AnnotationFormats.VOC:
+            annotation_dir = os.path.join(output_annotation_dir, split_name)
+            if not os.path.isdir(annotation_dir):
+                os.mkdir(annotation_dir)
+            else:
+                if not prompt_for_yes_or_no("directory '{}' exists. Overwrite?".format(annotation_dir)):
+                    raise RuntimeError("not overwriting '{}'".format(annotation_dir))
 
         # Total number of images = classes * objects per background * number of backgrounds
         total_img_cnt = len(self._background_paths) * num_images_per_bg
@@ -396,7 +468,6 @@ class ImageAugmenter(object):
                 TerminalColors.formatted_print("Ignoring background {} because {}".format(bg_path, e), TerminalColors.WARNING)
                 continue
 
-
             bg_img_params = [(bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
                               split_output_dir_images, split_output_dir_masks, prob_rand_trans, seed ) \
                                   for seed in range(num_images_per_bg)]
@@ -407,10 +478,14 @@ class ImageAugmenter(object):
                 annotations[img_file_name] = box_annotations
 
             # Writing annotations
-            if print_progress(img_cnt.value + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
+            if print_progress(img_cnt.value + 1, total_img_cnt,
+                              prefix="creating image ", fraction=write_chunk_ratio):
                 # periodically dump annotations
-                with open(annotation_path, 'a') as infile:
-                    yaml.dump(annotations, infile, default_flow_style=False)
-                    annotations = {}
-        with open(annotation_path, 'a') as infile:
-            yaml.dump(annotations, infile, default_flow_style=False)
+                self.save_annotations(annotations, split_output_dir_images,
+                                      output_annotation_dir, split_name,
+                                      annotation_file_path, annotation_format)
+                annotations = {}
+
+        self.save_annotations(annotations, split_output_dir_images,
+                              output_annotation_dir, split_name,
+                              annotation_file_path, annotation_format)
