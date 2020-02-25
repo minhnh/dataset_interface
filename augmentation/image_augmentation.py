@@ -122,8 +122,20 @@ class ImageAugmenter(object):
     _background_paths = None
     _images_paths = None
     _masks_paths = None
-    _object_collections = dict()
     _num_objects_per_class = None
+
+    # dictionary in which each key is an object class, while
+    # each value is a dictionary containing two keys:
+    # * images: absolute paths to images from the class
+    # * masks: absolute paths to segmentation masks for
+    #          the images from the class (i.e. masks[i] is the
+    #          segmentation mask of images[i])
+    _object_collections = dict()
+
+    # we will sample images without replacement - this is done by removing sampled
+    # images from self._object_collections - so we keep a copy of the object path
+    # dictionary so that we can restore it later
+    _object_collections_copy = dict()
 
     def __init__(self, data_dir, background_dir, class_annotation_file, num_objects_per_class):
         # check required directories
@@ -139,10 +151,6 @@ class ImageAugmenter(object):
         self._background_paths = glob_extensions_in_directory(background_dir, ALLOWED_IMAGE_EXTENSIONS)
         TerminalColors.formatted_print('Found {} background images '.format(len(self._background_paths)),
                                         TerminalColors.OKBLUE)
-        # self._augment_backgrounds = []
-        # for bg_path in background_paths:
-        #     bg_img = cv2.imread(bg_path)
-        #     self._augment_backgrounds.append(bg_img)
 
         # Saving number of objects per class
         self._num_objects_per_class = num_objects_per_class
@@ -173,10 +181,12 @@ class ImageAugmenter(object):
                 TerminalColors.formatted_print("skipping class '{}': {}".format(cls_name, e), TerminalColors.WARNING)
                 continue
 
+        self._object_collections_copy = copy.deepcopy(self._object_collections)
+
     def project_segmentation_on_background(self, background_image, segmented_obj_data, augmented_mask, prob_rand_transformation=1.0):
         # create a random transformation
         bg_height, bg_width = background_image.shape[:2]
-        transformed_coords = apply_random_transformation((bg_height, bg_width), segmented_obj_data.segmented_box, 
+        transformed_coords = apply_random_transformation((bg_height, bg_width), segmented_obj_data.segmented_box,
                                                           prob_rand_transformation=prob_rand_transformation)
         transformed_coords = transformed_coords.astype(np.int)
 
@@ -201,8 +211,6 @@ class ImageAugmenter(object):
         background_image[cleaned_y_coords, clean_x_coords] = projected_bgr[cleaned_y_coords, clean_x_coords]
 
         # Add object mask
-        augmented_mask[cleaned_y_coords, clean_x_coords] = self._class_dict[segmented_obj_data.class_id][1][::-1]
-        # display_image_and_wait(augmented_mask, 'object onto the background') # NOTE: remove
         new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width), class_id=segmented_obj_data.class_id)
         return background_image, new_box
 
@@ -285,9 +293,9 @@ class ImageAugmenter(object):
 
         annotations = []
         for obj in sampled_objects:
-            bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy, 
+            bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy,
                                                                        obj,
-                                                                       augmented_mask, 
+                                                                       augmented_mask,
                                                                        prob_rand_transformation=prob_rand_trans)
             generated_ann = box.to_dict()
             annotations.append(generated_ann)
@@ -299,13 +307,15 @@ class ImageAugmenter(object):
                               split_output_dir_images, split_output_dir_masks, prob_rand_trans, seed = params
 
         np.random.seed(seed)
-        generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img, 
-                                                                                      max_obj_num_per_bg, 
+
+        # we restore the object path dictionary if there are no more objects to be sampled at this point
+        if not self._object_collections:
+            self._object_collections = copy.deepcopy(self._object_collections_copy)
+
+        generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img,
+                                                                                      max_obj_num_per_bg,
                                                                                       invert_mask,
                                                                                       prob_rand_trans)
-        # if display_boxes:
-        #     drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
-        #     display_image_and_wait(drawn_img, 'box image')
 
         # write image and annotations
         with lock:
@@ -324,15 +334,14 @@ class ImageAugmenter(object):
             box['class_id'] = int(box['class_id'])
         # annotations[img_file_name] =  box_annotations
 
-        return (img_file_name, box_annotations) 
+        return (img_file_name, box_annotations)
 
     def setup(self, t, l):
-        global img_cnt, lock 
+        global img_cnt, lock
         img_cnt = t
         lock = l
 
-    def generate_detection_data(self, split_name, output_dir_images, output_dir_masks, output_annotation_dir, max_obj_num_per_bg,
-        num_images_per_bg=10, display_boxes=False, write_chunk_ratio=0.05, invert_mask=False, prob_rand_trans=1.0):
+    def generate_detection_data(self, split_name, output_dir_images, output_dir_masks, output_annotation_dir, max_obj_num_per_bg, num_images_per_bg=10, write_chunk_ratio=0.05, invert_mask=False, prob_rand_trans=1.0):
         """
         The main function which generate
         - generate synthetic images under <outpu_dir>/<split_name>
@@ -372,7 +381,7 @@ class ImageAugmenter(object):
         zero_pad_num = len(str(total_img_cnt))
         annotations = {}
 
-        # Prepare multiprocessing 
+        # Prepare multiprocessing
         img_cnt = mp.Value('i', 0)
         lock = mp.Lock()
         pool = mp.Pool(initializer=self.setup, initargs=[img_cnt, lock])
@@ -386,13 +395,11 @@ class ImageAugmenter(object):
             except RuntimeError as e:
                 TerminalColors.formatted_print("Ignoring background {} because {}".format(bg_path, e), TerminalColors.WARNING)
                 continue
-            # we store the current object path dictionary since we will sample images without replacement
-            img_path_dictionary = copy.deepcopy(self._object_collections)
 
 
             bg_img_params = [(bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
                               split_output_dir_images, split_output_dir_masks, prob_rand_trans, seed ) \
-                                  for seed in range(num_images_per_bg)] 
+                                  for seed in range(num_images_per_bg)]
 
             annotations_per_bg = pool.map(self.create_image, bg_img_params)
 
@@ -405,9 +412,5 @@ class ImageAugmenter(object):
                 with open(annotation_path, 'a') as infile:
                     yaml.dump(annotations, infile, default_flow_style=False)
                     annotations = {}
-
-            # we restore the object path dictionary after the image augmentation with the current background
-            if not self._object_collections:
-                self._object_collections = copy.deepcopy(img_path_dictionary)
         with open(annotation_path, 'a') as infile:
             yaml.dump(annotations, infile, default_flow_style=False)
