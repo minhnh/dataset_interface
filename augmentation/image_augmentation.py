@@ -306,7 +306,7 @@ class ImageAugmenter(object):
         bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
                               split_output_dir_images, split_output_dir_masks, prob_rand_trans, seed = params
 
-        np.random.seed(seed)
+        np.random.seed(seed + int(time.time()))
 
         # we restore the object path dictionary if there are no more objects to be sampled at this point
         if not self._object_collections:
