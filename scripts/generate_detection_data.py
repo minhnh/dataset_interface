@@ -7,7 +7,7 @@ from dataset_interface.augmentation.image_augmentation import ImageAugmenter
 
 def generate_masks_and_annotations(data_dir, background_dir, class_annotation_file,
                                    num_objects_per_class, output_dir, output_annotation_dir,
-                                   display_boxes, invert_mask, prob_rand_trans):
+                                   invert_mask, prob_rand_trans):
     augmenter = ImageAugmenter(data_dir, background_dir, class_annotation_file, num_objects_per_class)
     if not output_dir:
         output_dir = os.path.join(data_dir, 'synthetic_images')
@@ -32,7 +32,7 @@ def generate_masks_and_annotations(data_dir, background_dir, class_annotation_fi
     if not os.path.isdir(output_dir_masks):
         print("creating directory: " + output_dir_masks)
         os.mkdir(output_dir_masks)
-        
+
     if not os.path.isdir(output_annotation_dir):
         print("creating directory: " + output_annotation_dir)
         os.mkdir(output_annotation_dir)
@@ -51,9 +51,11 @@ def generate_masks_and_annotations(data_dir, background_dir, class_annotation_fi
 
         max_obj_num_per_bg = int(prompt_for_float("enter the maximum number of objects per background"))
         # generate images
-        augmenter.generate_detection_data(split_name, output_dir_images, output_dir_masks, output_annotation_dir, 
-                                          max_obj_num_per_bg, display_boxes=display_boxes, invert_mask=invert_mask, 
-                                          num_images_per_bg=num_images_per_bg, prob_rand_trans=prob_rand_trans)
+        augmenter.generate_detection_data(split_name, output_dir_images, output_dir_masks,
+                                          output_annotation_dir, max_obj_num_per_bg,
+                                          invert_mask=invert_mask,
+                                          num_images_per_bg=num_images_per_bg,
+                                          prob_rand_trans=prob_rand_trans)
 
         if not prompt_for_yes_or_no("do you want to generate images for another dataset split?"):
             break
@@ -62,9 +64,10 @@ def generate_masks_and_annotations(data_dir, background_dir, class_annotation_fi
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description="Script to generate training images and annotations for bounding box based object detection."
-                    " This is done by randomly projecting segemented object pixels onto backgrounds, then"
-                    " calculating the corresponding bounding boxes.")
+        description="Script to generate training images and annotations for"
+                    " bounding box based object detection. This is done by"
+                    " randomly projecting segmented object pixels onto backgrounds,"
+                    " then calculating the corresponding bounding boxes.")
     parser.add_argument('--data-directory', '-d', required=True,
                         help='directory where the script will look for images and object masks')
     parser.add_argument('--background-directory', '-bg', required=True,
@@ -77,10 +80,8 @@ if __name__ == '__main__':
                         help='(optional) directory to store generated images')
     parser.add_argument('--output-annotation-dir', '-a', default=None,
                         help='(optional) directory to store the generated YAML annotations')
-    parser.add_argument('--display-boxes', '-b', action='store_true',
-                        help='(optional) whether to display the synthetic images with visualized bounding boxes')
     parser.add_argument('--invert_mask', '-im', action='store_true',
-                        help='wheter to invert the mask (Required for YCB)')
+                        help='whether to invert the mask (Required for YCB)')
     parser.add_argument('--prob_rand_trans', '-pt', required=True, type=float,
                         help='probability of a random transformation (1.0 == No transformation applied)')
     args = parser.parse_args()
@@ -88,7 +89,7 @@ if __name__ == '__main__':
     try:
         generate_masks_and_annotations(args.data_directory, args.background_directory, args.class_annotations,
                                        args.num_objects_per_class, args.output_dir,
-                                       args.output_annotation_dir, args.display_boxes, args.invert_mask, args.prob_rand_trans)
+                                       args.output_annotation_dir, args.invert_mask, args.prob_rand_trans)
         TerminalColors.formatted_print('image and annotation generation complete', TerminalColors.OKGREEN)
     except KeyboardInterrupt:
         TerminalColors.formatted_print('\nscript interrupted', TerminalColors.WARNING)
