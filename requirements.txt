@@ -1,0 +1,6 @@
+cython
+opencv-python
+tqdm
+xmltodict
+scikit-image
+PyYAML
