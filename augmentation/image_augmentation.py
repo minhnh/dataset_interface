@@ -42,7 +42,7 @@ def apply_random_transformation(background_size, segmented_box, margin=0.03, max
 
     # create the transformation matrix for the generated rotation, translation and scale
     if np.random.uniform() < prob_rand_transformation:
-        tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=min(background_size),
+        tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=rand_scale * min(background_size),
                                         translation=(random_translation_x, random_translation_y)).params
     else:
         tf_matrix = SimilarityTransform(scale=rand_scale * min(background_size),
@@ -50,6 +50,13 @@ def apply_random_transformation(background_size, segmented_box, margin=0.03, max
 
     # apply transformation
     transformed_coords = matrix_transform(whitened_coords_norm, tf_matrix)
+
+    # we clip the object coordinates so that they are within the image boundaries
+    transformed_coords[np.where(transformed_coords[:,0] < 0), 0] = 0
+    transformed_coords[np.where(transformed_coords[:,0] > background_size[1]), 0] = background_size[1]-1
+
+    transformed_coords[np.where(transformed_coords[:,1] < 0), 1] = 0
+    transformed_coords[np.where(transformed_coords[:,1] > background_size[0]), 1] = background_size[0]-1
     return transformed_coords
 
 
