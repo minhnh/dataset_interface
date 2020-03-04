@@ -1,0 +1,11 @@
+cython
+opencv-python
+tqdm
+xmltodict
+scikit-image
+PyYAML
+torch
+torchvision
+argparse
+numpy
+datetime
