@@ -7,3 +7,4 @@ PyYAML
 torch
 torchvision
 argparse
+numpy
