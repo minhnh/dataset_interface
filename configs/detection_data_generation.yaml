@@ -1,0 +1,18 @@
+# appearance modification parameters
+prob_rand_color: 0.5
+prob_rand_noise: 0.01
+prob_rand_bright: 0.2
+bright_shift_range: [-5, 5]
+
+# rotation parameters
+prob_rand_rotation: 0.0
+
+# scaling parameters
+min_scale: 0.5
+max_scale: 1.5
+margin: 0.03
+max_obj_size_in_bg: 0.4
+
+# segmentation mask parameters
+morph_kernel_size: 2
+morph_iter_num: 1

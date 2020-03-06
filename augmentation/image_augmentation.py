@@ -16,8 +16,9 @@ from dataset_interface.utils import TerminalColors, glob_extensions_in_directory
                                     display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask, \
                                     draw_labeled_boxes, split_path
 from dataset_interface.augmentation.background_segmentation import get_image_mask_path
+from dataset_interface.augmentation.config import read_config_params
 
-def apply_random_transformation(background_size, segmented_box, margin=0.03, max_obj_size_in_bg=0.4, prob_rand_transformation=1.0):
+def apply_random_transformation(background_size, segmented_box, config_params):
     """apply a random transformation to 2D coordinates nomalized to image size"""
     # translate object coordinates to the object center's frame, i.e. whitens
     whitened_coords_norm = segmented_box.segmented_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
@@ -26,22 +27,23 @@ def apply_random_transformation(background_size, segmented_box, margin=0.03, max
     # to maximum (default) 50% of the background image, i.e. the normalized largest dimension of the object must be at
     # most 0.5. To put it simply, scale the objects down if they're too big.
     # TODO(minhnh) add shear
-    max_scale = 1.75
-    if segmented_box.max_dimension_norm > max_obj_size_in_bg:
-        max_scale = max_obj_size_in_bg / segmented_box.max_dimension_norm
+    max_scale = config_params.max_scale
+    if segmented_box.max_dimension_norm > config_params.max_obj_size_in_bg:
+        max_scale = config_params.max_obj_size_in_bg / segmented_box.max_dimension_norm
     random_rot_angle = np.random.uniform(0, np.pi)
-    rand_scale = np.random.uniform(0.5, max_scale)
+    rand_scale = np.random.uniform(config_params.min_scale, config_params.max_scale)
 
     # generate a random translation within the image boundaries for whitened, normalized coordinates, taking into
     # account the maximum allowed object dimension. After this translation, the normalized coordinates should
     # stay within [margin, 1-margin] for each dimension
     scaled_max_dimension = segmented_box.max_dimension_norm * max_scale
-    low_norm_bound, high_norm_bound = ((scaled_max_dimension / 2) + margin, 1 - margin - (scaled_max_dimension / 2))
+    low_norm_bound, high_norm_bound = ((scaled_max_dimension / 2) + config_params.margin,
+                                       1 - config_params.margin - (scaled_max_dimension / 2))
     random_translation_x = np.random.uniform(low_norm_bound, high_norm_bound) * background_size[1]
     random_translation_y = np.random.uniform(low_norm_bound, high_norm_bound) * background_size[0]
 
     # create the transformation matrix for the generated rotation, translation and scale
-    if np.random.uniform() < prob_rand_transformation:
+    if np.random.uniform() < config_params.prob_rand_rotation:
         tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=rand_scale * min(background_size),
                                         translation=(random_translation_x, random_translation_y)).params
     else:
@@ -60,16 +62,15 @@ def apply_random_transformation(background_size, segmented_box, margin=0.03, max
     return transformed_coords
 
 
-def apply_image_filters(bgr_image, prob_rand_color=0.2, prob_rand_noise=0.01,
-                        prob_rand_bright=0.2, bright_shift_range=(-5, 5)):
+def apply_image_filters(bgr_image, config_params):
     """
     apply image filters to image
     TODO(minhnh) add contrast shifts
     """
-    if np.random.uniform() < prob_rand_bright:
+    if np.random.uniform() < config_params.prob_rand_bright:
         # randomly change brightness at a certain probability
         hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
-        rand_bright_ship = np.random.randint(*bright_shift_range)
+        rand_bright_ship = np.random.randint(*config_params.bright_shift_range)
         h, s, v = cv2.split(hsv)
         lim = 255 - rand_bright_ship
         v[v > lim] = 255
@@ -81,16 +82,16 @@ def apply_image_filters(bgr_image, prob_rand_color=0.2, prob_rand_noise=0.01,
     # see more at: https://docs.opencv.org/master/d3/d50/group__imgproc__colormap.html
     ALLOWED_COLOR_MAPS = [cv2.COLORMAP_AUTUMN, cv2.COLORMAP_BONE, cv2.COLORMAP_HOT, cv2.COLORMAP_OCEAN,
                           cv2.COLORMAP_PARULA, cv2.COLORMAP_PINK, cv2.COLORMAP_SUMMER, cv2.COLORMAP_WINTER]
-    if np.random.uniform() < prob_rand_color:
+    if np.random.uniform() < config_params.prob_rand_color:
         bgr_image = cv2.applyColorMap(bgr_image, np.random.choice(ALLOWED_COLOR_MAPS))
 
     # randomly add gaussian noise, since random_noise normalize the image, we need to convert it back to pixel value
-    if np.random.uniform() < prob_rand_noise:
+    if np.random.uniform() < config_params.prob_rand_noise:
         noise_img = random_noise(bgr_image, mode='gaussian')
         bgr_image = (255 * noise_img).astype(np.uint8)
 
     # randomly add salt & pepper noise, convert it back to pixel value
-    if np.random.uniform() < prob_rand_noise:
+    if np.random.uniform() < config_params.prob_rand_noise:
         noise_img = random_noise(bgr_image, mode='s&p')
         bgr_image = (255 * noise_img).astype(np.uint8)
 
@@ -129,6 +130,7 @@ def get_voc_annotation_dict(image_name, image_dir, annotation_data, class_dict):
                             }
         annotation_dict['object'].append(object_annotation)
     return {'annotation': annotation_dict}
+
 
 class AnnotationFormats(object):
     CUSTOM = 'custom'
@@ -227,28 +229,33 @@ class ImageAugmenter(object):
 
         self._object_collections_copy = copy.deepcopy(self._object_collections)
 
-    def project_segmentation_on_background(self, background_image, segmented_obj_data, augmented_mask, prob_rand_transformation=1.0):
+    def project_segmentation_on_background(self, background_image, segmented_obj_data, augmented_mask, config_params):
         # create a random transformation
         bg_height, bg_width = background_image.shape[:2]
-        transformed_coords = apply_random_transformation((bg_height, bg_width), segmented_obj_data.segmented_box,
-                                                          prob_rand_transformation=prob_rand_transformation)
+        transformed_coords = apply_random_transformation((bg_height, bg_width),
+                                                         segmented_obj_data.segmented_box,
+                                                         config_params)
         transformed_coords = transformed_coords.astype(np.int)
 
         # create and clean a new mask for the projected pixels
-        morph_kernel_size = 2
-        morph_iter_num = 1
         projected_obj_mask = np.zeros((bg_height, bg_width), dtype=np.uint8)
         projected_obj_mask[transformed_coords[:, 1], transformed_coords[:, 0]] = 255
-        projected_obj_mask = cleanup_mask(projected_obj_mask, morph_kernel_size, morph_iter_num)
+        projected_obj_mask = cleanup_mask(projected_obj_mask,
+                                          config_params.morph_kernel_size,
+                                          config_params.morph_iter_num)
 
         # denoise projected RGB values
         projected_bgr = np.zeros((bg_height, bg_width, 3), dtype=np.uint8)
         projected_bgr[transformed_coords[:, 1], transformed_coords[:, 0], :] = \
             segmented_obj_data.bgr_image[segmented_obj_data.segmented_y_coords,
-                                        segmented_obj_data.segmented_x_coords]
-        kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
-        projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
-        projected_bgr = apply_image_filters(projected_bgr, prob_rand_color=0.5)
+                                         segmented_obj_data.segmented_x_coords]
+        kernel = np.ones((config_params.morph_kernel_size,
+                          config_params.morph_kernel_size), np.uint8)
+        projected_bgr = cv2.morphologyEx(projected_bgr,
+                                         cv2.MORPH_CLOSE,
+                                         kernel,
+                                         iterations=config_params.morph_iter_num)
+        projected_bgr = apply_image_filters(projected_bgr, config_params)
 
         # write to background image
         cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
@@ -326,11 +333,10 @@ class ImageAugmenter(object):
             sample_count += 1
         return sampled_objects
 
-    def generate_single_image(self, background_image, max_obj_num_per_bg, invert_mask=False, prob_rand_trans=1.0):
+    def generate_single_image(self, background_image, max_obj_num_per_bg, config_params, invert_mask=False):
         """generate a single image and its bounding box annotations"""
         sampled_objects = self._sample_classes(max_obj_num_per_bg, invert_mask)
         bg_img_copy = background_image.copy()
-        # bg_img_copy = apply_image_filters(bg_img_copy)
 
         augmented_mask = bg_img_copy.copy()
         augmented_mask[:] = (255,255,255)
@@ -340,7 +346,7 @@ class ImageAugmenter(object):
             bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy,
                                                                        obj,
                                                                        augmented_mask,
-                                                                       prob_rand_transformation=prob_rand_trans)
+                                                                       config_params)
             generated_ann = box.to_dict()
             annotations.append(generated_ann)
             time.sleep(0.1)
@@ -348,7 +354,7 @@ class ImageAugmenter(object):
 
     def create_image(self, params):
         bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
-                              split_output_dir_images, split_output_dir_masks, prob_rand_trans, seed = params
+                              split_output_dir_images, split_output_dir_masks, config_params, seed = params
 
         np.random.seed(seed + int(time.time()))
 
@@ -358,8 +364,8 @@ class ImageAugmenter(object):
 
         generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img,
                                                                                       max_obj_num_per_bg,
-                                                                                      invert_mask,
-                                                                                      prob_rand_trans)
+                                                                                      config_params,
+                                                                                      invert_mask)
 
         # write image and annotations
         with lock:
@@ -405,8 +411,8 @@ class ImageAugmenter(object):
 
     def generate_detection_data(self, split_name, output_dir_images, output_dir_masks,
                                 output_annotation_dir, max_obj_num_per_bg,
-                                num_images_per_bg=10, write_chunk_ratio=0.05,
-                                invert_mask=False, prob_rand_trans=1.0,
+                                augmentation_config_file_path, num_images_per_bg=10,
+                                write_chunk_ratio=0.05, invert_mask=False,
                                 annotation_format=AnnotationFormats.CUSTOM):
         """Generates:
         * synthetic images under <output_dir>/synthetic_images/<split_name>
@@ -438,6 +444,12 @@ class ImageAugmenter(object):
         elif os.listdir(split_output_dir_masks):
             if not prompt_for_yes_or_no("directory '{}' not empty. Overwrite?".format(split_output_dir_masks)):
                 raise RuntimeError("not overwriting '{}'".format(split_output_dir_masks))
+
+        config_params = None
+        if os.path.isfile(augmentation_config_file_path):
+            config_params = read_config_params(augmentation_config_file_path)
+        else:
+            raise RuntimeError('Config {0} is not a valid file'.format(augmentation_config_file_path))
 
         # check output annotation file
         annotation_file_path = os.path.join(output_annotation_dir, split_name + '.yaml')
@@ -476,7 +488,7 @@ class ImageAugmenter(object):
                 continue
 
             bg_img_params = [(bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
-                              split_output_dir_images, split_output_dir_masks, prob_rand_trans, seed ) \
+                              split_output_dir_images, split_output_dir_masks, config_params, seed ) \
                                   for seed in range(num_images_per_bg)]
 
             annotations_per_bg = pool.map(self.create_image, bg_img_params)
