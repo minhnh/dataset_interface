@@ -75,7 +75,7 @@ usage: generate_detection_data.py [-h] --data-directory DATA_DIRECTORY
                                   --background-directory BACKGROUND_DIRECTORY
                                   --class-annotations CLASS_ANNOTATIONS
                                   --num-objects-per-class NUM_OBJECTS_PER_CLASS
-                                  --prob_rand_trans PROB_RAND_TRANS
+                                  --config-path AUGMENTATION_CONFIG_PATH
                                   [--output-dir OUTPUT_DIR]
                                   [--output-annotation-dir OUTPUT_ANNOTATION_DIR]
                                   [--annotation-format ANNOTATION_FORMAT]
@@ -96,16 +96,15 @@ optional arguments:
                         maximum number of images per class that are used for augmentation
                         (this means that if there are more available images from the class,
                         not all of them will be used during augmentation)
-  --prob_rand_trans -pt
-                        probability of applying a random rotation to each object
-                        during augmentation (probability = 0 means that no rotation
-                        will be applied)
+  --config-path -cp
+                        path to a configuration file with augmentation parameters
+                        (the expected entries in this file are given below)
   --output-dir, -o
                         (optional) directory to store generated images
-                        (default: None)
+                        (default same as data-directory)
   --output-annotation-dir, -a
                         (optional) directory to store the generated
-                        annotations (default: None)
+                        annotations (default: same as data-directory)
   --invert_mask - im
                         whether to invert the colours of the object segmentation mask
                         (necessary for black and white masks in case the object is black
@@ -118,6 +117,28 @@ optional arguments:
                         file for each image is created as well
 ```
 
+A default configuration file is provided under [../configs/detection_data_generation.yaml](../configs/detection_data_generation.yaml), which includes default values for all entries that should be defined in the file.
+
+```
+# appearance modification parameters
+prob_rand_color: 0.5
+prob_rand_noise: 0.01
+prob_rand_bright: 0.2
+bright_shift_range: [-5, 5]
+
+# rotation parameters
+prob_rand_rotation: 0.0
+
+# scaling parameters
+min_scale: 0.5
+max_scale: 1.5
+margin: 0.03
+max_obj_size_in_bg: 0.4
+
+# segmentation mask parameters
+morph_kernel_size: 2
+morph_iter_num: 1
+```
 
 
 The script will look for the objects' masks and images in the `<DATA_DIRECTORY>` and for background images in the
