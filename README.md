@@ -57,6 +57,10 @@ indoor_cat_names = coco_api.get_sub_category_names('indoor')
 
 We primarily train detection models using the tools and model definitions from `torchvision` as described in the [Torchvision Object Detection Finetuning Tutorial](https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html). Guidelines for training and using models can be found in [`docs/object_detection.md`](docs/object_detection.md)
 
+## Image Comparison Model Training
+
+We use Siamese networks for object/person comparison and subsequent recognition. Instructions for training and using a comparison model are given in [`docs/image_comparison.md`](docs/image_comparison.md).
+
 ## Image augmentation
 
 We aim to ease the process of generating data for object detection. Using the green box in the picture below,

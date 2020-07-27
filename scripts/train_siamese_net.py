@@ -21,7 +21,7 @@ from dataset_interface.siamese_net.utils import get_transforms
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('-d', '--data_path', type=str,
-                           help='Directory containing training',
+                           help='Directory containing training data',
                            default='/home/lucy/data/')
     argparser.add_argument('-m', '--model_path', type=str,
                            help='Path to a directory where the trained models (one per epoch) should be saved',
