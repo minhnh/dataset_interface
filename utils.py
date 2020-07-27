@@ -1,4 +1,11 @@
 from builtins import input      # for Python 2 compatibility
+
+import sys
+try:
+    sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
+except:
+    pass
+
 import argparse
 import glob
 import os
@@ -8,7 +15,7 @@ from xml.etree import ElementTree
 from dataset_interface.common import BoundingBox, NormalizedBox
 
 
-ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png']
+ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'pbm']
 
 
 class RawDescriptionAndDefaultsFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):

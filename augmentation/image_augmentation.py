@@ -1,57 +1,76 @@
+import copy
 import os
 import yaml
+from collections import OrderedDict
+import time
+import multiprocessing as mp
+from tqdm import tqdm
+import xmltodict
 import numpy as np
 import cv2
 from skimage.transform import SimilarityTransform, matrix_transform
+from skimage.util import random_noise
+
 from dataset_interface.common import SegmentedBox
 from dataset_interface.utils import TerminalColors, glob_extensions_in_directory, ALLOWED_IMAGE_EXTENSIONS, \
                                     display_image_and_wait, prompt_for_yes_or_no, print_progress, cleanup_mask, \
-                                    draw_labeled_boxes
+                                    draw_labeled_boxes, split_path
 from dataset_interface.augmentation.background_segmentation import get_image_mask_path
+from dataset_interface.augmentation.config import read_config_params
 
-
-def apply_random_transformation(background_size, segmented_box, margin=0.1, max_obj_size_in_bg=0.4):
+def apply_random_transformation(background_size, segmented_box, config_params):
     """apply a random transformation to 2D coordinates nomalized to image size"""
-    orig_coords_norm = segmented_box.segmented_coords_homog_norm[:, :2]
     # translate object coordinates to the object center's frame, i.e. whitens
-    whitened_coords_norm = orig_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
+    whitened_coords_norm = segmented_box.segmented_coords_norm - (segmented_box.x_center_norm, segmented_box.y_center_norm)
 
     # then generate a random rotation around the z-axis (perpendicular to the image plane), and limit the object scale
     # to maximum (default) 50% of the background image, i.e. the normalized largest dimension of the object must be at
     # most 0.5. To put it simply, scale the objects down if they're too big.
     # TODO(minhnh) add shear
-    max_scale = 1.
-    if segmented_box.max_dimension_norm > max_obj_size_in_bg:
-        max_scale = max_obj_size_in_bg / segmented_box.max_dimension_norm
+    max_scale = config_params.max_scale
+    if segmented_box.max_dimension_norm > config_params.max_obj_size_in_bg:
+        max_scale = config_params.max_obj_size_in_bg / segmented_box.max_dimension_norm
     random_rot_angle = np.random.uniform(0, np.pi)
-    rand_scale = np.random.uniform(0.5*max_scale, max_scale)
+    rand_scale = np.random.uniform(config_params.min_scale, config_params.max_scale)
 
     # generate a random translation within the image boundaries for whitened, normalized coordinates, taking into
     # account the maximum allowed object dimension. After this translation, the normalized coordinates should
     # stay within [margin, 1-margin] for each dimension
     scaled_max_dimension = segmented_box.max_dimension_norm * max_scale
-    low_norm_bound, high_norm_bound = ((scaled_max_dimension / 2) + margin, 1 - margin - (scaled_max_dimension / 2))
-    random_translation_x = np.random.uniform(low_norm_bound, high_norm_bound)
-    random_translation_y = np.random.uniform(low_norm_bound, high_norm_bound)
+    low_norm_bound, high_norm_bound = ((scaled_max_dimension / 2) + config_params.margin,
+                                       1 - config_params.margin - (scaled_max_dimension / 2))
+    random_translation_x = np.random.uniform(low_norm_bound, high_norm_bound) * background_size[1]
+    random_translation_y = np.random.uniform(low_norm_bound, high_norm_bound) * background_size[0]
 
     # create the transformation matrix for the generated rotation, translation and scale
-    tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=rand_scale,
-                                    translation=(random_translation_x, random_translation_y)).params
+    if np.random.uniform() < config_params.prob_rand_rotation:
+        tf_matrix = SimilarityTransform(rotation=random_rot_angle, scale=rand_scale * min(background_size),
+                                        translation=(random_translation_x, random_translation_y)).params
+    else:
+        tf_matrix = SimilarityTransform(scale=rand_scale * min(background_size),
+                                        translation=(random_translation_x, random_translation_y)).params
 
     # apply transformation
-    transformed_coords_norm = matrix_transform(whitened_coords_norm, tf_matrix)
-    return transformed_coords_norm
+    transformed_coords = matrix_transform(whitened_coords_norm, tf_matrix)
+
+    # we clip the object coordinates so that they are within the image boundaries
+    transformed_coords[np.where(transformed_coords[:,0] < 0), 0] = 0
+    transformed_coords[np.where(transformed_coords[:,0] > background_size[1]), 0] = background_size[1]-1
+
+    transformed_coords[np.where(transformed_coords[:,1] < 0), 1] = 0
+    transformed_coords[np.where(transformed_coords[:,1] > background_size[0]), 1] = background_size[0]-1
+    return transformed_coords
 
 
-def apply_image_filters(bgr_image, prob_rand_bright=1.0, bright_shift_range=(-5, 5)):
+def apply_image_filters(bgr_image, config_params):
     """
     apply image filters to image
-    TODO(minhnh) add color and contrast shifts
+    TODO(minhnh) add contrast shifts
     """
-    if np.random.uniform() < prob_rand_bright:
+    if np.random.uniform() < config_params.prob_rand_bright:
         # randomly change brightness at a certain probability
         hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
-        rand_bright_ship = np.random.randint(*bright_shift_range)
+        rand_bright_ship = np.random.randint(*config_params.bright_shift_range)
         h, s, v = cv2.split(hsv)
         lim = 255 - rand_bright_ship
         v[v > lim] = 255
@@ -59,23 +78,81 @@ def apply_image_filters(bgr_image, prob_rand_bright=1.0, bright_shift_range=(-5,
         final_hsv = cv2.merge((h, s, v))
         bgr_image = cv2.cvtColor(final_hsv, cv2.COLOR_HSV2BGR)
 
+    # randomly select from the allowed color maps below to apply to the image
+    # see more at: https://docs.opencv.org/master/d3/d50/group__imgproc__colormap.html
+    ALLOWED_COLOR_MAPS = [cv2.COLORMAP_AUTUMN, cv2.COLORMAP_BONE, cv2.COLORMAP_HOT, cv2.COLORMAP_OCEAN,
+                          cv2.COLORMAP_PARULA, cv2.COLORMAP_PINK, cv2.COLORMAP_SUMMER, cv2.COLORMAP_WINTER]
+    if np.random.uniform() < config_params.prob_rand_color:
+        bgr_image = cv2.applyColorMap(bgr_image, np.random.choice(ALLOWED_COLOR_MAPS))
+
+    # randomly add gaussian noise, since random_noise normalize the image, we need to convert it back to pixel value
+    if np.random.uniform() < config_params.prob_rand_noise:
+        noise_img = random_noise(bgr_image, mode='gaussian')
+        bgr_image = (255 * noise_img).astype(np.uint8)
+
+    # randomly add salt & pepper noise, convert it back to pixel value
+    if np.random.uniform() < config_params.prob_rand_noise:
+        noise_img = random_noise(bgr_image, mode='s&p')
+        bgr_image = (255 * noise_img).astype(np.uint8)
+
     return bgr_image
 
+def get_voc_annotation_dict(image_name, image_dir, annotation_data, class_dict):
+    '''Returns a dictionary representing an image annotation in VOC format.
+    The "folder" and "size" tags are not included in the annotation.
+
+    Keyword arguments:
+    image_name: str -- name of the image for which an annotation is generated
+    image_dir: str -- directory in which the image is saved
+    annotation_data: Dict[Sequence[str, int]]: list of object annotation in the image;
+                                               the annotation for each object is expected
+                                               to contain the following keys:
+                                               {class_id, xmin, xmax, ymin, ymax}
+    class_dict: Dict[int, str] -- a dictionary mapping class IDs to class labels
+
+    '''
+    annotation_dict = OrderedDict()
+    annotation_dict['filename'] = image_name
+    annotation_dict['path'] = os.path.join(image_dir, image_name)
+    annotation_dict['source'] = {'database': 'unknown'}
+    annotation_dict['segmented'] = 0
+    annotation_dict['object'] = []
+    for object_data in annotation_data:
+        object_annotation = {'name': class_dict[object_data['class_id']],
+                             'pose': 'Unspecified',
+                             'truncated': 0,
+                             'difficult': 0,
+                             'bndbox': {'xmin': object_data['xmin'],
+                                        'ymin': object_data['ymin'],
+                                        'xmax': object_data['xmax'],
+                                        'ymax': object_data['ymax']
+                                       }
+                            }
+        annotation_dict['object'].append(object_annotation)
+    return {'annotation': annotation_dict}
+
+
+class AnnotationFormats(object):
+    CUSTOM = 'custom'
+    VOC = 'voc'
 
 class SegmentedObject(object):
     """"contains information processed from a single image-mask pair"""
     max_dimension = None
     bgr_image = None
     mask_image = None
+    class_id = None
     segmented_box = None
     segmented_x_coords = None
     segmented_y_coords = None
 
-    def __init__(self, image_path, mask_path):
+    def __init__(self, image_path, mask_path, class_id, invert_mask):
         # read color and mask images
         self.bgr_image = cv2.imread(image_path)
         self.mask_image = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-
+        if invert_mask:
+            self.mask_image = cv2.bitwise_not(self.mask_image)
+        self.class_id = class_id
         self.segmented_y_coords, self.segmented_x_coords = np.where(self.mask_image)
 
         # calculate maximum pixel dimension from the segmented coordinates
@@ -86,14 +163,110 @@ class SegmentedObject(object):
         display_image_and_wait(segmented_bgr, 'segmented_object')
 
 
-class SegmentedObjectCollection(object):
-    """Collection of instances of 'SegmentedObject''s, one for each image-mask pair"""
-    class_id = None
-    _segmented_objects = None
+class ImageAugmenter(object):
+    _class_dict = None
+    _background_paths = None
+    _images_paths = None
+    _masks_paths = None
+    _num_objects_per_class = None
 
-    def __init__(self, class_id, obj_img_dir, obj_mask_dir):
-        self.class_id = class_id
+    # dictionary in which each key is an object class, while
+    # each value is a dictionary containing two keys:
+    # * images: absolute paths to images from the class
+    # * masks: absolute paths to segmentation masks for
+    #          the images from the class (i.e. masks[i] is the
+    #          segmentation mask of images[i])
+    _object_collections = dict()
 
+    # we will sample images without replacement - this is done by removing sampled
+    # images from self._object_collections - so we keep a copy of the object path
+    # dictionary so that we can restore it later
+    _object_collections_copy = dict()
+
+    def __init__(self, data_dir, background_dir, class_annotation_file, num_objects_per_class):
+        # check required directories
+        TerminalColors.formatted_print('Data directory: ' + data_dir, TerminalColors.OKBLUE)
+        if not os.path.isdir(data_dir):
+            raise RuntimeError("'{}' is not an existing directory".format(data_dir))
+
+        TerminalColors.formatted_print('Background directory: ' + background_dir, TerminalColors.OKBLUE)
+        if not os.path.isdir(background_dir):
+            raise RuntimeError("'{}' is not an existing directory".format(background_dir))
+
+        # load backgrounds for image augmentation
+        self._background_paths = glob_extensions_in_directory(background_dir, ALLOWED_IMAGE_EXTENSIONS)
+        TerminalColors.formatted_print('Found {} background images '.format(len(self._background_paths)),
+                                        TerminalColors.OKBLUE)
+
+        # Saving number of objects per class
+        self._num_objects_per_class = num_objects_per_class
+
+        # load class annotation file
+        TerminalColors.formatted_print('Class annotation file: {}'.format(class_annotation_file),
+                                       TerminalColors.OKBLUE)
+        if not os.path.exists(class_annotation_file):
+            raise RuntimeError('class annotation file does not exist: ' + class_annotation_file)
+        with open(class_annotation_file, 'r') as infile:
+            self._class_dict = yaml.load(infile, Loader=yaml.FullLoader)
+        # load segmented objects
+        TerminalColors.formatted_print("Loading object masks for '{}' classes".format(len(self._class_dict)),
+                                       TerminalColors.OKBLUE)
+
+        for cls_id, (cls_name, _) in self._class_dict.items():
+            obj_dir = os.path.join(data_dir, cls_name)
+            obj_img_dir = os.path.join(obj_dir, 'images')
+            obj_mask_dir = os.path.join(obj_dir, 'masks')
+
+            try:
+                TerminalColors.formatted_print("loading images and masks for class '{}'".format(cls_name),
+                                               TerminalColors.BOLD)
+                # segmented_obj = SegmentedObjectCollection(cls_id, obj_img_dir, obj_mask_dir)
+                # self._segmented_object_collections[cls_id] = segmented_obj
+                self._load_objects_per_class(cls_id, obj_img_dir, obj_mask_dir)
+            except RuntimeError as e:
+                TerminalColors.formatted_print("skipping class '{}': {}".format(cls_name, e), TerminalColors.WARNING)
+                continue
+
+        self._object_collections_copy = copy.deepcopy(self._object_collections)
+
+    def project_segmentation_on_background(self, background_image, segmented_obj_data, augmented_mask, config_params):
+        # create a random transformation
+        bg_height, bg_width = background_image.shape[:2]
+        transformed_coords = apply_random_transformation((bg_height, bg_width),
+                                                         segmented_obj_data.segmented_box,
+                                                         config_params)
+        transformed_coords = transformed_coords.astype(np.int)
+
+        # create and clean a new mask for the projected pixels
+        projected_obj_mask = np.zeros((bg_height, bg_width), dtype=np.uint8)
+        projected_obj_mask[transformed_coords[:, 1], transformed_coords[:, 0]] = 255
+        projected_obj_mask = cleanup_mask(projected_obj_mask,
+                                          config_params.morph_kernel_size,
+                                          config_params.morph_iter_num)
+
+        # denoise projected RGB values
+        projected_bgr = np.zeros((bg_height, bg_width, 3), dtype=np.uint8)
+        projected_bgr[transformed_coords[:, 1], transformed_coords[:, 0], :] = \
+            segmented_obj_data.bgr_image[segmented_obj_data.segmented_y_coords,
+                                         segmented_obj_data.segmented_x_coords]
+        kernel = np.ones((config_params.morph_kernel_size,
+                          config_params.morph_kernel_size), np.uint8)
+        projected_bgr = cv2.morphologyEx(projected_bgr,
+                                         cv2.MORPH_CLOSE,
+                                         kernel,
+                                         iterations=config_params.morph_iter_num)
+        projected_bgr = apply_image_filters(projected_bgr, config_params)
+
+        # write to background image
+        cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
+        background_image[cleaned_y_coords, clean_x_coords] = projected_bgr[cleaned_y_coords, clean_x_coords]
+
+        # Add object mask
+        new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width), class_id=segmented_obj_data.class_id)
+        return background_image, new_box
+
+
+    def _load_objects_per_class(self, class_id, obj_img_dir, obj_mask_dir):
         # check directories
         if not os.path.isdir(obj_img_dir):
             raise RuntimeError("image folder '{}' is not an existing directory".format(obj_img_dir))
@@ -105,193 +278,233 @@ class SegmentedObjectCollection(object):
         if not obj_img_paths:
             raise RuntimeError("found no image of supported types in '{}'".format(obj_img_dir))
 
+        # glob mask images
+        obj_mask_paths = glob_extensions_in_directory(obj_mask_dir, ALLOWED_IMAGE_EXTENSIONS)
+        if not obj_img_paths:
+            raise RuntimeError("found no mask of supported types in '{}'".format(obj_img_dir))
+
         # load images and masks
         print("found '{}' object images in '{}'".format(len(obj_img_paths), obj_img_dir))
-        self._segmented_objects = []
-        for img_path in obj_img_paths:
-            # check expected path to mask
-            mask_path = get_image_mask_path(img_path, obj_mask_dir)
-            if not os.path.exists(mask_path):
-                TerminalColors.formatted_print("skipping image '{}': mask '{}' does not exist"
-                                               .format(img_path, mask_path), TerminalColors.WARNING)
-                continue
+        print("found '{}' object masks in '{}'".format(len(obj_mask_paths), obj_mask_dir))
 
-            # add SegmentedObject instance for image-mask pair
+        img_indices = list(range(len(obj_img_paths)))
+        np.random.shuffle(img_indices)
+
+        img_count = 0
+        current_img_idx = 0
+        img_paths = []
+        mask_paths = []
+        while img_count < self._num_objects_per_class and current_img_idx < len(img_indices):
             try:
-                self._segmented_objects.append(SegmentedObject(img_path, mask_path))
-            except Exception as e:
-                TerminalColors.formatted_print("failed to process image '{}' and mask '{}': {}"
-                                               .format(img_path, mask_path, e), TerminalColors.FAIL)
-                continue
+                # we check if the current image has a corresponding mask
+                img_path = obj_img_paths[img_indices[current_img_idx]]
+                mask_path = get_image_mask_path(img_path, obj_mask_paths)
 
-    def project_segmentation_on_background(self, background_image):
-        # choose random segmentation from collection
-        rand_segmentation = np.random.choice(self._segmented_objects)
+                # even if both the image and mask exist, we still need to load them
+                # in order to check that they are valid images
+                cv2.imread(img_path)
+                img_paths.append(img_path)
+                mask_paths.append(mask_path)
+                img_count += 1
+            except Exception as exc:
+                TerminalColors.formatted_print("[load_objects_per_class] Error: {0}. Skipping image".format(exc), TerminalColors.WARNING)
+            current_img_idx += 1
 
-        # create a random transformation
-        bg_height, bg_width = background_image.shape[:2]
-        transformed_coords_norm = apply_random_transformation((bg_height, bg_width), rand_segmentation.segmented_box)
+        print("{} images saved per class {}".format(len(img_paths), class_id))
+        self._object_collections[class_id] = {'images': img_paths, 'masks' : mask_paths}
 
-        # denormalize transformed coordinates, preserving aspect ratio, but making sure the object is within
-        # background image
-        denorm_factor = min(bg_height, bg_width)
-        transformed_coords = np.array(transformed_coords_norm * denorm_factor, dtype=int)
+    def _sample_classes(self, max_obj_num_per_bg, invert_mask=False):
+        sample_count = 0
+        sampled_objects = []
+        while self._object_collections and sample_count < max_obj_num_per_bg:
+            # we sample an object class and then an image from that class
+            sampled_class_id = np.random.choice(list(self._object_collections.keys()))
+            sampled_object_id = np.random.choice(list(range(len(self._object_collections[sampled_class_id]['images']))))
 
-        # create and clean a new mask for the projected pixels
-        morph_kernel_size = 2
-        morph_iter_num = 1
-        projected_obj_mask = np.zeros((bg_height, bg_width), dtype=np.uint8)
-        projected_obj_mask[transformed_coords[:, 1], transformed_coords[:, 0]] = 255
-        projected_obj_mask = cleanup_mask(projected_obj_mask, morph_kernel_size, morph_iter_num)
+            # we remove the image and mask paths from the image path dictionary
+            image_path = self._object_collections[sampled_class_id]['images'].pop(sampled_object_id)
+            mask_path = self._object_collections[sampled_class_id]['masks'].pop(sampled_object_id)
+            # if there are no more images from the sampled class, we remove the
+            # class entry from the image path dictionary
+            if not self._object_collections[sampled_class_id]['images']:
+                del self._object_collections[sampled_class_id]
 
-        # denoise projected RGB values
-        projected_bgr = np.zeros((bg_height, bg_width, 3), dtype=np.uint8)
-        projected_bgr[transformed_coords[:, 1], transformed_coords[:, 0], :] = \
-            rand_segmentation.bgr_image[rand_segmentation.segmented_y_coords,
-                                        rand_segmentation.segmented_x_coords]
-        kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
-        projected_bgr = cv2.morphologyEx(projected_bgr, cv2.MORPH_CLOSE, kernel, iterations=morph_iter_num)
-        projected_bgr = apply_image_filters(projected_bgr)
+            sampled_objects.append(SegmentedObject(image_path, mask_path, sampled_class_id, invert_mask))
+            sample_count += 1
+        return sampled_objects
 
-        # write to background image
-        cleaned_y_coords, clean_x_coords = np.where(projected_obj_mask)
-        background_image[cleaned_y_coords, clean_x_coords] = projected_bgr[cleaned_y_coords, clean_x_coords]
-        new_box = SegmentedBox(clean_x_coords, cleaned_y_coords, (bg_height, bg_width), class_id=self.class_id)
-        return background_image, new_box
-
-
-class ImageAugmenter(object):
-    class_dict = None
-    _data_dir = None
-    _greenbox_image_dir = None
-    _mask_dir = None
-    _augment_backgrounds = None
-    _segmented_object_collections = None
-
-    def __init__(self, data_dir, class_annotation_file):
-        # check required directories
-        self._data_dir = data_dir
-        TerminalColors.formatted_print('Data directory: ' + self._data_dir, TerminalColors.OKBLUE)
-        if not os.path.isdir(self._data_dir):
-            raise RuntimeError("'{}' is not an existing directory".format(self._data_dir))
-
-        self._greenbox_image_dir = os.path.join(self._data_dir, 'green_box_images')
-        print('will look for object green box images in: ' + self._greenbox_image_dir)
-        if not os.path.isdir(self._greenbox_image_dir):
-            raise RuntimeError("'{}' is not an existing directory".format(self._greenbox_image_dir))
-
-        self._mask_dir = os.path.join(self._data_dir, 'object_masks')
-        print('will look for object masks in: ' + self._mask_dir)
-        if not os.path.isdir(self._mask_dir):
-            raise RuntimeError("'{}' is not an existing directory".format(self._mask_dir))
-
-        augment_bg_dir = os.path.join(self._data_dir, 'augmentation_backgrounds')
-        print('will look for backgrounds for image augmentation in: ' + augment_bg_dir)
-        if not os.path.isdir(augment_bg_dir):
-            raise RuntimeError("'{}' is not an existing directory".format(augment_bg_dir))
-
-        # load backgrounds for image augmentation
-        background_paths = glob_extensions_in_directory(augment_bg_dir, ALLOWED_IMAGE_EXTENSIONS)
-        print("found '{}' background images".format(len(background_paths)))
-        self._augment_backgrounds = []
-        for bg_path in background_paths:
-            bg_img = cv2.imread(bg_path)
-            self._augment_backgrounds.append(bg_img)
-
-        # load class annotation file
-        TerminalColors.formatted_print('Class annotation file: {}'.format(class_annotation_file),
-                                       TerminalColors.OKBLUE)
-        if not os.path.exists(class_annotation_file):
-            raise RuntimeError('class annotation file does not exist: ' + class_annotation_file)
-        with open(class_annotation_file, 'r') as infile:
-            self.class_dict = yaml.load(infile, Loader=yaml.FullLoader)
-
-        # load segmented objects
-        TerminalColors.formatted_print("Loading object masks for '{}' classes".format(len(self.class_dict)),
-                                       TerminalColors.OKBLUE)
-        self._segmented_object_collections = {}
-        for cls_id, cls_name in self.class_dict.items():
-            obj_img_dir = os.path.join(self._greenbox_image_dir, cls_name)
-            obj_mask_dir = os.path.join(self._mask_dir, cls_name)
-
-            try:
-                TerminalColors.formatted_print("loading images and masks for class '{}'".format(cls_name),
-                                               TerminalColors.BOLD)
-                segmented_obj = SegmentedObjectCollection(cls_id, obj_img_dir, obj_mask_dir)
-                self._segmented_object_collections[cls_id] = segmented_obj
-            except RuntimeError as e:
-                TerminalColors.formatted_print("skipping class '{}': {}".format(cls_name, e), TerminalColors.WARNING)
-                continue
-
-    def _sample_classes(self, max_obj_num_per_bg):
-        # TODO(minhnh) ensure balance sampling
-        num_obj = np.random.randint(1, max_obj_num_per_bg + 1)
-        sampled_class_ids = np.random.choice(list(self._segmented_object_collections.keys()), num_obj)
-        return [self._segmented_object_collections[cls_id] for cls_id in sampled_class_ids]
-
-    def generate_single_image(self, background_image, max_obj_num_per_bg):
+    def generate_single_image(self, background_image, max_obj_num_per_bg, config_params, invert_mask=False):
         """generate a single image and its bounding box annotations"""
-        sampled_collections = self._sample_classes(max_obj_num_per_bg)
-        annotations = []
+        sampled_objects = self._sample_classes(max_obj_num_per_bg, invert_mask)
         bg_img_copy = background_image.copy()
-        for obj_collection in sampled_collections:
-            bg_img_copy, box = obj_collection.project_segmentation_on_background(bg_img_copy)
+
+        augmented_mask = bg_img_copy.copy()
+        augmented_mask[:] = (255,255,255)
+
+        annotations = []
+        for obj in sampled_objects:
+            bg_img_copy, box = self.project_segmentation_on_background(bg_img_copy,
+                                                                       obj,
+                                                                       augmented_mask,
+                                                                       config_params)
             generated_ann = box.to_dict()
             annotations.append(generated_ann)
-        return bg_img_copy, annotations
+            time.sleep(0.1)
+        return bg_img_copy, annotations, augmented_mask
 
-    def generate_detection_data(self, split_name, output_dir, output_annotation_dir, num_image_per_bg,
-                                max_obj_num_per_bg, display_boxes=False, write_chunk_ratio=0.05):
+    def create_image(self, params):
+        bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
+                              split_output_dir_images, split_output_dir_masks, config_params, seed = params
+
+        np.random.seed(seed + int(time.time()))
+
+        # we restore the object path dictionary if there are no more objects to be sampled at this point
+        if not self._object_collections:
+            self._object_collections = copy.deepcopy(self._object_collections_copy)
+
+        generated_image, box_annotations, augmented_mask = self.generate_single_image(bg_img,
+                                                                                      max_obj_num_per_bg,
+                                                                                      config_params,
+                                                                                      invert_mask)
+
+        # write image and annotations
+        with lock:
+            img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt.value).zfill(zero_pad_num))
+            img_file_path = os.path.join(split_output_dir_images, img_file_name)
+
+            mask_file_name = '{}_{}.png'.format(split_name, str(img_cnt.value).zfill(zero_pad_num))
+            mask_file_path = os.path.join(split_output_dir_masks, mask_file_name)
+            cv2.imwrite(img_file_path, generated_image)
+            cv2.imwrite(mask_file_path, augmented_mask)
+
+            img_cnt.value += 1
+
+        # Cast box_annotations_class_id
+        for box in box_annotations:
+            box['class_id'] = int(box['class_id'])
+        # annotations[img_file_name] =  box_annotations
+
+        return (img_file_name, box_annotations)
+
+    def setup(self, t, l):
+        global img_cnt, lock
+        img_cnt = t
+        lock = l
+
+    def save_annotations(self, annotations, split_output_image_dir,
+                         output_annotation_dir, split_name,
+                         annotation_file_path, annotation_format):
+        with open(annotation_file_path, 'a') as infile:
+            yaml.dump(annotations, infile, default_flow_style=False)
+
+        if annotation_format == AnnotationFormats.VOC:
+            annotation_dir = os.path.join(output_annotation_dir, split_name)
+            for img_file_name, annotation_data in annotations.items():
+                annotation_dict = get_voc_annotation_dict(img_file_name,
+                                                          split_output_image_dir,
+                                                          annotation_data,
+                                                          self._class_dict)
+                img_name = img_file_name.split('.')[0]
+                img_annotation_file_path = os.path.join(annotation_dir, img_name + '.xml')
+                with open(img_annotation_file_path, 'w') as annotation_file:
+                    xmltodict.unparse(annotation_dict, output=annotation_file, pretty=True)
+
+    def generate_detection_data(self, split_name, output_dir_images, output_dir_masks,
+                                output_annotation_dir, max_obj_num_per_bg,
+                                augmentation_config_file_path, num_images_per_bg=10,
+                                write_chunk_ratio=0.05, invert_mask=False,
+                                annotation_format=AnnotationFormats.CUSTOM):
+        """Generates:
+        * synthetic images under <output_dir>/synthetic_images/<split_name>
+        * image annotations under <output_dir>/annotations
+
+        If annotation_format is equal to AnnotationFormats.VOC, an annotation
+        file is generated for each image under <output_dir>/annotations/split_name,
+        such that the name of the annotation is the same as the name of the
+        image file (e.g. if the image name is train_01.jpg, the name of the
+        annotation file will be train_01.xml).
         """
-        The main function which generate
-        - generate synthetic images under <outpu_dir>/<split_name>
-        - generate
-        """
-        split_output_dir = os.path.join(output_dir, split_name)
+        split_output_dir_images = os.path.join(output_dir_images, split_name)
+        split_output_dir_masks = os.path.join(output_dir_masks, split_name)
         TerminalColors.formatted_print("generating images for split '{}' under '{}'"
-                                       .format(split_name, split_output_dir), TerminalColors.BOLD)
+                                       .format(split_name, split_output_dir_images), TerminalColors.BOLD)
+        TerminalColors.formatted_print("generating masks for split '{}' under '{}'"
+                                       .format(split_name, split_output_dir_masks), TerminalColors.BOLD)
         # check output image directory
-        if not os.path.isdir(split_output_dir):
-            print("creating directory: " + split_output_dir)
-            os.mkdir(split_output_dir)
-        elif os.listdir(split_output_dir):
-            if not prompt_for_yes_or_no("directory '{}' not empty. Overwrite?".format(split_output_dir)):
-                raise RuntimeError("not overwriting '{}'".format(split_output_dir))
+        if not os.path.isdir(split_output_dir_images):
+            print("creating directory: " + split_output_dir_images)
+            os.mkdir(split_output_dir_images)
+        elif os.listdir(split_output_dir_images):
+            if not prompt_for_yes_or_no("directory '{}' not empty. Overwrite?".format(split_output_dir_images)):
+                raise RuntimeError("not overwriting '{}'".format(split_output_dir_images))
+
+        if not os.path.isdir(split_output_dir_masks):
+            print("creating directory: " + split_output_dir_masks)
+            os.mkdir(split_output_dir_masks)
+        elif os.listdir(split_output_dir_masks):
+            if not prompt_for_yes_or_no("directory '{}' not empty. Overwrite?".format(split_output_dir_masks)):
+                raise RuntimeError("not overwriting '{}'".format(split_output_dir_masks))
+
+        config_params = None
+        if os.path.isfile(augmentation_config_file_path):
+            config_params = read_config_params(augmentation_config_file_path)
+        else:
+            raise RuntimeError('Config {0} is not a valid file'.format(augmentation_config_file_path))
 
         # check output annotation file
-        annotation_path = os.path.join(output_annotation_dir, split_name + '.yml')
+        annotation_file_path = os.path.join(output_annotation_dir, split_name + '.yaml')
         TerminalColors.formatted_print("generating annotations for split '{}' in '{}'"
-                                       .format(split_name, annotation_path), TerminalColors.BOLD)
-        if os.path.isfile(annotation_path):
-            if not prompt_for_yes_or_no("file '{}' exists. Overwrite?".format(annotation_path)):
-                raise RuntimeError("not overwriting '{}'".format(annotation_path))
+                                       .format(split_name, annotation_file_path), TerminalColors.BOLD)
+        if os.path.isfile(annotation_file_path):
+            if not prompt_for_yes_or_no("file '{}' exists. Overwrite?".format(annotation_file_path)):
+                raise RuntimeError("not overwriting '{}'".format(annotation_file_path))
 
-        # store a reasonable value for the maximum number of objects projected onto each background
-        if max_obj_num_per_bg <= 0 or max_obj_num_per_bg > len(self.class_dict):
-            max_obj_num_per_bg = len(self.class_dict)
+        if annotation_format == AnnotationFormats.VOC:
+            annotation_dir = os.path.join(output_annotation_dir, split_name)
+            if not os.path.isdir(annotation_dir):
+                os.mkdir(annotation_dir)
+            else:
+                if not prompt_for_yes_or_no("directory '{}' exists. Overwrite?".format(annotation_dir)):
+                    raise RuntimeError("not overwriting '{}'".format(annotation_dir))
 
-        # generate images and annotations
-        img_cnt = 0
-        total_img_cnt = num_image_per_bg * len(self._augment_backgrounds)
+        # Total number of images = classes * objects per background * number of backgrounds
+        total_img_cnt = len(self._background_paths) * num_images_per_bg
         zero_pad_num = len(str(total_img_cnt))
-        annotations = []
-        for bg_img in self._augment_backgrounds:
-            for _ in range(num_image_per_bg):
-                if print_progress(img_cnt + 1, total_img_cnt, prefix="creating image ", fraction=write_chunk_ratio):
-                    # periodically dump annotations
-                    with open(annotation_path, 'a') as infile:
-                        yaml.dump(annotations, infile, default_flow_style=False)
-                        annotations = []
+        annotations = {}
 
-                # generate new image
-                generated_image, box_annotations = self.generate_single_image(bg_img, max_obj_num_per_bg)
-                if display_boxes:
-                    drawn_img = draw_labeled_boxes(generated_image, box_annotations, self.class_dict)
-                    display_image_and_wait(drawn_img, 'box image')
+        # Prepare multiprocessing
+        img_cnt = mp.Value('i', 0)
+        lock = mp.Lock()
+        pool = mp.Pool(initializer=self.setup, initargs=[img_cnt, lock])
 
-                # write image and annotations
-                img_file_name = '{}_{}.jpg'.format(split_name, str(img_cnt).zfill(zero_pad_num))
-                img_file_path = os.path.join(split_output_dir, img_file_name)
-                annotations.append({'image_name': img_file_path, 'objects': box_annotations})
-                cv2.imwrite(img_file_path, generated_image)
-                img_cnt += 1
+        for bg_idx in tqdm(range(len(self._background_paths))):
+            bg_path = self._background_paths[bg_idx]
+        # for bg_path in self._background_paths:
+            # generate new image
+            try:
+                bg_img = cv2.imread(bg_path)
+            except RuntimeError as e:
+                TerminalColors.formatted_print("Ignoring background {} because {}".format(bg_path, e), TerminalColors.WARNING)
+                continue
+
+            bg_img_params = [(bg_img, max_obj_num_per_bg, invert_mask, split_name, zero_pad_num, \
+                              split_output_dir_images, split_output_dir_masks, config_params, seed ) \
+                                  for seed in range(num_images_per_bg)]
+
+            annotations_per_bg = pool.map(self.create_image, bg_img_params)
+
+            for img_file_name, box_annotations in annotations_per_bg:
+                annotations[img_file_name] = box_annotations
+
+            # Writing annotations
+            if print_progress(img_cnt.value + 1, total_img_cnt,
+                              prefix="creating image ", fraction=write_chunk_ratio):
+                # periodically dump annotations
+                self.save_annotations(annotations, split_output_dir_images,
+                                      output_annotation_dir, split_name,
+                                      annotation_file_path, annotation_format)
+                annotations = {}
+
+        self.save_annotations(annotations, split_output_dir_images,
+                              output_annotation_dir, split_name,
+                              annotation_file_path, annotation_format)

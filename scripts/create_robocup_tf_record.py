@@ -69,7 +69,7 @@ if __name__ == '__main__':
                                             " e.g. './robocup_train.record'")
     parser.add_argument('--image_dir', '-d', default=None,
                         help="if specified, will prepend to image paths in annotation file")
-    parser.add_argument('--num_shards', '-n', default=1, help="number of fragments to split the TFRecord into")
+    parser.add_argument('--num_shards', '-n', default=1, type=int, help="number of fragments to split the TFRecord into")
     args = parser.parse_args()
 
     try:
@@ -79,3 +79,4 @@ if __name__ == '__main__':
         TerminalColors.formatted_print('\nscript interrupted', TerminalColors.WARNING)
     except Exception as e:
         TerminalColors.formatted_print(e, TerminalColors.FAIL)
+        raise

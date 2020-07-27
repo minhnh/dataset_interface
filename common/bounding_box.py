@@ -67,18 +67,21 @@ class SegmentedBox(NormalizedBox):
     all values are normalized to image dimensions
     """
     max_dimension_norm = None
-    segmented_coords_homog_norm = None
+    segmented_coords_orig = None
+    segmented_coords_norm = None
 
     def __init__(self, x_coords, y_coords, image_size, class_id=None):
         x_min, x_max = np.min(x_coords), np.max(x_coords)
         y_min, y_max = np.min(y_coords), np.max(y_coords)
         super().__init__(image_size, x_min, y_min, x_max=x_max, y_max=y_max, class_id=class_id)
 
-        # create a homogeneous matrix from the normalized segmented coordinates for applying transformations
-        self.segmented_coords_homog_norm = np.vstack((x_coords / self.image_width,
-                                                      y_coords / self.image_height,
-                                                      np.ones(len(x_coords))))
-        self.segmented_coords_homog_norm = self.segmented_coords_homog_norm.transpose()
+        # create a matrix from the normalized segmented coordinates for applying transformations
+        self.segmented_coords_orig = np.vstack((x_coords, y_coords))
+        self.segmented_coords_orig = self.segmented_coords_orig.transpose()
+
+        # create a matrix from the normalized segmented coordinates for applying transformations
+        self.segmented_coords_norm = np.vstack((x_coords / self.image_width, y_coords / self.image_height))
+        self.segmented_coords_norm = self.segmented_coords_norm.transpose()
 
         # calculate normalized diagonal as maximum dimension
         self.max_dimension_norm = np.sqrt(self.width_norm**2 + self.height_norm**2)
